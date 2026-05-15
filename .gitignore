@@ -1,0 +1,6 @@
+stone
+stone.exe
+/dist/
+*.test
+*.out
+.DS_Store
