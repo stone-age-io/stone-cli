@@ -22,6 +22,7 @@ var contextCreateCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
 		url, _ := cmd.Flags().GetString("url")
+		natsURL, _ := cmd.Flags().GetString("nats-url")
 		setActive, _ := cmd.Flags().GetBool("use")
 		if url == "" {
 			return fmt.Errorf("--url is required")
@@ -33,8 +34,9 @@ var contextCreateCmd = &cobra.Command{
 			return fmt.Errorf("context %q already exists", name)
 		}
 		c := ctx.Context{
-			Name: name,
-			URL:  strings.TrimRight(url, "/"),
+			Name:    name,
+			URL:     strings.TrimRight(url, "/"),
+			NATSURL: strings.TrimSpace(natsURL),
 		}
 		if err := ctx.Save(c); err != nil {
 			return err
@@ -106,6 +108,7 @@ var contextShowCmd = &cobra.Command{
 		}
 		fmt.Printf("name:                 %s\n", c.Name)
 		fmt.Printf("url:                  %s\n", c.URL)
+		fmt.Printf("nats_url:             %s\n", or(c.NATSURL, "(unset)"))
 		fmt.Printf("auth.collection:      %s\n", or(c.Auth.Collection, "(unset)"))
 		fmt.Printf("auth.email:           %s\n", or(c.Auth.Email, "(unset)"))
 		fmt.Printf("auth.expires:         %s\n", or(c.Auth.Expires, "(unset)"))
@@ -150,6 +153,7 @@ func or(v, fallback string) string {
 
 func init() {
 	contextCreateCmd.Flags().String("url", "", "PocketBase base URL (e.g. https://host:8090)")
+	contextCreateCmd.Flags().String("nats-url", "", "NATS server URL (e.g. nats://host:4222) used when generating per-org nats-cli contexts")
 	contextCreateCmd.Flags().Bool("use", false, "make this the active context")
 
 	contextCmd.AddCommand(contextCreateCmd, contextUseCmd, contextLsCmd, contextShowCmd, contextRmCmd)

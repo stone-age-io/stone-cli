@@ -32,7 +32,8 @@ type Context struct {
 	URL                 string      `yaml:"url"`
 	Auth                AuthSection `yaml:"auth"`
 	CurrentOrganization string      `yaml:"current_organization,omitempty"`
-	NATSContext         string      `yaml:"nats_context,omitempty"`
+	NATSURL             string      `yaml:"nats_url,omitempty"`     // e.g. nats://host:4222 — used when generating per-org nats-cli contexts
+	NATSContext         string      `yaml:"nats_context,omitempty"` // nats-cli context name 'stone org switch' last wrote
 	Workspace           string      `yaml:"workspace,omitempty"`
 }
 

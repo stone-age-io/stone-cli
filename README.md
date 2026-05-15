@@ -14,15 +14,19 @@ and syncing a workspace of YAML files declaratively (GitOps style).
 go build -o stone
 
 # 2) Create a context pointing at your platform server
-./stone context create local --url http://localhost:8090
+./stone context create local \
+    --url http://localhost:8090 \
+    --nats-url nats://localhost:4222    # optional, enables per-org nats-context sync
 
 # 3) Log in
 ./stone auth login          # prompts for email + password
 ./stone auth whoami
 
-# 4) Pick an organization (mirrors users.current_organization on the server)
+# 4) Pick an organization (mirrors users.current_organization on the server,
+#    and writes a per-org nats-cli context if --nats-url is set)
 ./stone org ls
 ./stone org switch "System"
+./stone org switch "System" --set-nats-default   # also point `nats` cli at it
 
 # 5) Create resources with typed flags
 ./stone location create --name "HQ" --code hq
@@ -75,9 +79,23 @@ workspace: /home/me/my-workspace
 
 `stone` reuses the user's existing `nats` cli contexts via
 [orbit.go's natscontext](https://github.com/synadia-io/orbit.go) module.
-Tell `stone` which one to use by setting `nats_context` in the active context,
-or leave it empty to use the nats-cli default. JetStream domain (if any) is
-honored automatically.
+
+There are two ways to wire it up:
+
+1. **Per-org sync (recommended).** Set `nats_url` on the stone context once
+   (via `--nats-url` on `context create` or `org switch`). Then `stone org
+   switch <org>` looks up your membership, reads the linked `nats_user`'s
+   `creds_file`, writes a fresh `~/.config/stone/creds/stone-<ctx>-<org>.creds`,
+   and writes a matching `~/.config/nats/context/stone-<ctx>-<org>.json`.
+   The stone context's `nats_context` field is updated to point at it.
+   Pass `--set-nats-default` to also update the nats-cli default context.
+
+2. **Manual.** Set `nats_context` in the stone context yourself, pointing
+   at any `nats context add` you've already created. JetStream domain (if any)
+   is honored automatically.
+
+Use `stone nats sync-context` to re-issue the context after rotating keys
+(e.g., after `stone nats-user update <id> --regenerate true`).
 
 ## Pull / apply
 
