@@ -59,7 +59,7 @@ var jsStreamLsCmd = &cobra.Command{
 		if err := lister.Err(); err != nil {
 			return err
 		}
-		return pb.PrintList(os.Stdout, rows, []string{"subjects", "messages", "bytes", "storage"}, resolveOutput())
+		return pb.PrintList(os.Stdout, rows, []string{"name", "subjects", "messages", "bytes", "storage"}, resolveOutput())
 	},
 }
 
@@ -211,7 +211,7 @@ var jsBucketLsCmd = &cobra.Command{
 		if err := lister.Error(); err != nil {
 			return err
 		}
-		return pb.PrintList(os.Stdout, rows, []string{"values", "bytes", "history", "ttl"}, resolveOutput())
+		return pb.PrintList(os.Stdout, rows, []string{"name", "values", "bytes", "history", "ttl"}, resolveOutput())
 	},
 }
 

@@ -63,6 +63,28 @@ func (s EntitySpec) hasVerb(v string) bool {
 	return false
 }
 
+// aliases returns alternate command names so users can type the singular,
+// plural, hyphen, underscore, or collection form interchangeably.
+// E.g. "nats-user" accepts: nats-users, nats_users, nats_user.
+func (s EntitySpec) aliases() []string {
+	cands := []string{
+		s.Plural,
+		s.Collection,
+		strings.ReplaceAll(s.Name, "-", "_"),
+		strings.ReplaceAll(s.Plural, "-", "_"),
+		strings.ReplaceAll(s.Collection, "_", "-"),
+	}
+	seen := map[string]bool{s.Name: true, "": true}
+	var out []string
+	for _, c := range cands {
+		if !seen[c] {
+			seen[c] = true
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
 func (s EntitySpec) field(name string) *Field {
 	for i := range s.Fields {
 		if s.Fields[i].Name == name {
@@ -368,8 +390,9 @@ func resolveOutput() string {
 // registerCRUD wires ls/create/update/delete/edit for a single entity.
 func registerCRUD(spec EntitySpec) {
 	root := &cobra.Command{
-		Use:   spec.Name,
-		Short: fmt.Sprintf("Manage %s records", spec.Plural),
+		Use:     spec.Name,
+		Aliases: spec.aliases(),
+		Short:   fmt.Sprintf("Manage %s records", spec.Plural),
 	}
 	if spec.hasVerb("ls") {
 		root.AddCommand(buildLsCmd(spec))
@@ -407,7 +430,8 @@ func buildLsCmd(spec EntitySpec) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return pb.PrintList(os.Stdout, items, spec.KeyColumns, resolveOutput())
+			cols := append([]string{"id"}, spec.KeyColumns...)
+			return pb.PrintList(os.Stdout, items, cols, resolveOutput())
 		},
 	}
 	cmd.Flags().String("filter", "", "extra PocketBase filter expression to AND with the org filter")

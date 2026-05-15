@@ -101,7 +101,8 @@ func PrintRecord(w io.Writer, r Record, format string) error {
 }
 
 // PrintList writes a list of records in the requested format.
-// For "table"/"" output, includes the columns provided (id is always first).
+// For "table"/"" output, the columns argument is the full ordered list of
+// column names; the caller decides whether to include "id" / "name" / etc.
 func PrintList(w io.Writer, items []Record, columns []string, format string) error {
 	switch format {
 	case "json":
@@ -116,9 +117,8 @@ func PrintList(w io.Writer, items []Record, columns []string, format string) err
 		_, err = w.Write(data)
 		return err
 	default:
-		cols := append([]string{"id"}, columns...)
 		tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-		for i, c := range cols {
+		for i, c := range columns {
 			if i > 0 {
 				fmt.Fprint(tw, "\t")
 			}
@@ -126,7 +126,7 @@ func PrintList(w io.Writer, items []Record, columns []string, format string) err
 		}
 		fmt.Fprintln(tw)
 		for _, it := range items {
-			for i, c := range cols {
+			for i, c := range columns {
 				if i > 0 {
 					fmt.Fprint(tw, "\t")
 				}
