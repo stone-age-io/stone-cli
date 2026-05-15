@@ -28,7 +28,7 @@ var orgLsCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		client := pb.New(c)
+		client := newPBClient(c)
 		items, err := client.ListAll("organizations", pb.ListOptions{Sort: "name"})
 		if err != nil {
 			return err
@@ -62,7 +62,7 @@ var orgCurrentCmd = &cobra.Command{
 			return errors.New("no current organization set. run: stone org switch <name|id>")
 		}
 		// Best-effort enrich with name from server.
-		client := pb.New(c)
+		client := newPBClient(c)
 		rec, err := client.Get("organizations", c.CurrentOrganization)
 		if err != nil {
 			fmt.Println(c.CurrentOrganization)
@@ -98,7 +98,7 @@ var orgSwitchCmd = &cobra.Command{
 			c.Auth.UserID = id
 		}
 
-		client := pb.New(c)
+		client := newPBClient(c)
 		target := args[0]
 		orgID := target
 		var orgName string
@@ -139,6 +139,7 @@ var orgSwitchCmd = &cobra.Command{
 		// --- NATS context sync ----------------------------------------
 		skipNats, _ := cmd.Flags().GetBool("no-nats")
 		if skipNats {
+			fmt.Println("nats-sync: skipped (--no-nats)")
 			return nil
 		}
 		natsURL, _ := cmd.Flags().GetString("nats-url")
@@ -147,54 +148,70 @@ var orgSwitchCmd = &cobra.Command{
 			_ = ctx.Save(c)
 		}
 		if c.NATSURL == "" {
-			fmt.Fprintln(os.Stderr, "note: no NATS URL set on this stone context; skipping nats-context sync.\n      set with: stone org switch <org> --nats-url nats://host:4222")
+			fmt.Println("nats-sync: skipped — no NATS URL on this stone context")
+			fmt.Println("           set one with: stone org switch <org> --nats-url nats://host:4222")
 			return nil
 		}
 		setDefault, _ := cmd.Flags().GetBool("set-nats-default")
-		natsName, err := syncNATSContextForCurrentOrg(client, c, orgID, orgName, setDefault)
+		verbose, _ := cmd.Flags().GetBool("verbose")
+		res, skipReason, err := syncNATSContextForCurrentOrg(client, c, orgID, orgName, setDefault, verbose)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "warning: nats-context sync failed: %v\n", err)
+			fmt.Fprintf(os.Stderr, "nats-sync: FAILED — %v\n", err)
 			return nil
 		}
-		if natsName == "" {
+		if skipReason != "" {
+			fmt.Printf("nats-sync: skipped — %s\n", skipReason)
 			return nil
 		}
-		if natsName != c.NATSContext {
-			c.NATSContext = natsName
+		if res.Name != c.NATSContext {
+			c.NATSContext = res.Name
 			if err := ctx.Save(c); err != nil {
 				return fmt.Errorf("nats-context written but failed to update stone context: %w", err)
 			}
 		}
-		fmt.Printf("nats-context: %s\n", natsName)
+		fmt.Printf("nats-sync: wrote context %q\n", res.Name)
+		fmt.Printf("           context: %s\n", res.CtxPath)
+		fmt.Printf("           creds:   %s\n", res.CredsPath)
 		if setDefault {
-			fmt.Printf("set as nats-cli default\n")
+			fmt.Println("           set as nats-cli default (~/.config/nats/context.txt)")
 		}
 		return nil
 	},
 }
 
 // syncNATSContextForCurrentOrg looks up the current user's membership for
-// orgID, fetches its nats_user, and writes a per-org nats-cli context. It
-// returns the nats-cli context name (empty if there is no membership/nats
-// user for this org).
-func syncNATSContextForCurrentOrg(client *pb.Client, c ctx.Context, orgID, orgName string, setDefault bool) (string, error) {
+// orgID, fetches its nats_user, and writes a per-org nats-cli context.
+// Returns (result, skipReason, error). skipReason is non-empty when we
+// intentionally did nothing (e.g., user has no membership for this org).
+func syncNATSContextForCurrentOrg(client *pb.Client, c ctx.Context, orgID, orgName string, setDefault, verbose bool) (natsx.SyncResult, string, error) {
+	if verbose {
+		fmt.Fprintf(os.Stderr, "[verbose] user_id=%s org_id=%s org_name=%q nats_url=%s\n", c.Auth.UserID, orgID, orgName, c.NATSURL)
+	}
 	m, err := natsx.MembershipForOrg(client, c.Auth.Collection, c.Auth.UserID, orgID)
 	if err != nil {
-		return "", fmt.Errorf("lookup membership: %w", err)
+		return natsx.SyncResult{}, "", fmt.Errorf("lookup membership: %w", err)
 	}
 	if m == nil {
-		fmt.Fprintln(os.Stderr, "note: no membership found for this user+org; skipping nats-context sync.")
-		return "", nil
+		return natsx.SyncResult{}, "no membership found for this user+org (operators must be members of an org to get NATS creds)", nil
+	}
+	if verbose {
+		mid, _ := m["id"].(string)
+		fmt.Fprintf(os.Stderr, "[verbose] membership_id=%s\n", mid)
 	}
 	nu, err := natsx.FetchNATSUserForMembership(client, m)
 	if err != nil {
-		return "", fmt.Errorf("fetch nats_user: %w", err)
+		return natsx.SyncResult{}, "", fmt.Errorf("fetch nats_user: %w", err)
 	}
 	if nu == nil {
-		fmt.Fprintln(os.Stderr, "note: membership has no linked nats_user; skipping nats-context sync.")
-		return "", nil
+		return natsx.SyncResult{}, "membership has no linked nats_user (the platform's hooks may not have provisioned one yet)", nil
 	}
-	return natsx.SyncContextForOrg(natsx.SyncOptions{
+	if verbose {
+		nid, _ := nu["id"].(string)
+		uname, _ := nu["nats_username"].(string)
+		creds, _ := nu["creds_file"].(string)
+		fmt.Fprintf(os.Stderr, "[verbose] nats_user_id=%s nats_username=%q creds_file_len=%d\n", nid, uname, len(creds))
+	}
+	res, err := natsx.SyncContextForOrg(natsx.SyncOptions{
 		StoneContext: c.Name,
 		OrgID:        orgID,
 		OrgName:      orgName,
@@ -202,6 +219,7 @@ func syncNATSContextForCurrentOrg(client *pb.Client, c ctx.Context, orgID, orgNa
 		NATSUser:     nu,
 		SetSelected:  setDefault,
 	})
+	return res, "", err
 }
 
 // escapePBString escapes double quotes for use inside a PocketBase filter literal.
@@ -213,6 +231,7 @@ func init() {
 	orgSwitchCmd.Flags().Bool("no-nats", false, "skip generating a nats-cli context for the new org")
 	orgSwitchCmd.Flags().Bool("set-nats-default", false, "also set the generated context as the nats-cli default (writes ~/.config/nats/context.txt)")
 	orgSwitchCmd.Flags().String("nats-url", "", "NATS server URL to use (persists onto the stone context)")
+	orgSwitchCmd.Flags().Bool("verbose", false, "print diagnostic details about the nats-sync step")
 
 	orgCmd.AddCommand(orgLsCmd, orgCurrentCmd, orgSwitchCmd)
 	rootCmd.AddCommand(orgCmd)

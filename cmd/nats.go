@@ -15,7 +15,6 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/stone-age-io/stone-cli/internal/ctx"
 	"github.com/stone-age-io/stone-cli/internal/natsx"
-	"github.com/stone-age-io/stone-cli/internal/pb"
 )
 
 var natsCmd = &cobra.Command{
@@ -185,7 +184,8 @@ or if the local files have drifted.`,
 			return errors.New("no NATS URL set on this stone context. pass --nats-url or run: stone context create --nats-url ...")
 		}
 		setDefault, _ := cmd.Flags().GetBool("set-nats-default")
-		client := pb.New(c)
+		verbose, _ := cmd.Flags().GetBool("verbose")
+		client := newPBClient(c)
 
 		// Best-effort: fetch org name for the description.
 		var orgName string
@@ -193,20 +193,22 @@ or if the local files have drifted.`,
 			orgName, _ = rec["name"].(string)
 		}
 
-		name, err := syncNATSContextForCurrentOrg(client, c, c.CurrentOrganization, orgName, setDefault)
+		res, skipReason, err := syncNATSContextForCurrentOrg(client, c, c.CurrentOrganization, orgName, setDefault, verbose)
 		if err != nil {
 			return err
 		}
-		if name == "" {
-			return errors.New("nothing to sync (no membership or nats_user for this org)")
+		if skipReason != "" {
+			return fmt.Errorf("nothing to sync — %s", skipReason)
 		}
-		if name != c.NATSContext {
-			c.NATSContext = name
+		if res.Name != c.NATSContext {
+			c.NATSContext = res.Name
 			if err := ctx.Save(c); err != nil {
 				return fmt.Errorf("nats-context written but failed to update stone context: %w", err)
 			}
 		}
-		fmt.Printf("nats-context: %s\n", name)
+		fmt.Printf("nats-context: %s\n", res.Name)
+		fmt.Printf("context:      %s\n", res.CtxPath)
+		fmt.Printf("creds:        %s\n", res.CredsPath)
 		if setDefault {
 			fmt.Println("set as nats-cli default")
 		}
@@ -221,6 +223,7 @@ func init() {
 
 	natsSyncContextCmd.Flags().Bool("set-nats-default", false, "also set the generated context as the nats-cli default")
 	natsSyncContextCmd.Flags().String("nats-url", "", "NATS server URL (persists onto the stone context)")
+	natsSyncContextCmd.Flags().Bool("verbose", false, "print diagnostic details (user_id, membership_id, creds length)")
 
 	natsCmd.AddCommand(natsPubCmd, natsSubCmd, natsReqCmd, natsSyncContextCmd)
 	rootCmd.AddCommand(natsCmd)

@@ -81,7 +81,7 @@ func runPull(cmd *cobra.Command, args []string) error {
 		wanted[a] = true
 	}
 
-	client := pb.New(c)
+	client := newPBClient(c)
 	totals := 0
 	for _, spec := range entitySpecs {
 		if len(wanted) > 0 && !wanted[spec.Collection] && !wanted[spec.Name] && !wanted[spec.Plural] {
@@ -91,7 +91,7 @@ func runPull(cmd *cobra.Command, args []string) error {
 			fmt.Fprintf(os.Stderr, "skip %s (org-scoped; no current organization set)\n", spec.Collection)
 			continue
 		}
-		opts := pb.ListOptions{Sort: "-updated"}
+		opts := pb.ListOptions{}
 		if spec.OrgScoped {
 			opts.Filter = fmt.Sprintf(`organization="%s"`, c.CurrentOrganization)
 		}
@@ -269,7 +269,7 @@ func runApply(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	client := pb.New(c)
+	client := newPBClient(c)
 	var created, updated, failed int
 
 	for coll, idxs := range creates {

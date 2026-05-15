@@ -9,7 +9,6 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/stone-age-io/stone-cli/internal/ctx"
-	"github.com/stone-age-io/stone-cli/internal/pb"
 	"golang.org/x/term"
 )
 
@@ -66,7 +65,7 @@ var authLoginCmd = &cobra.Command{
 			return errors.New("password is required")
 		}
 
-		client := pb.New(c)
+		client := newPBClient(c)
 		if err := client.Health(); err != nil {
 			return fmt.Errorf("cannot reach PocketBase at %s: %w", c.URL, err)
 		}

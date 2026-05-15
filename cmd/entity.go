@@ -422,8 +422,9 @@ func buildLsCmd(spec EntitySpec) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			client := pb.New(c)
-			opts := pb.ListOptions{Sort: "-updated"}
+			client := newPBClient(c)
+			sort, _ := cmd.Flags().GetString("sort")
+			opts := pb.ListOptions{Sort: sort}
 			extraFilter, _ := cmd.Flags().GetString("filter")
 			opts.Filter = composeOrgFilter(spec, c.CurrentOrganization, extraFilter)
 			items, err := client.ListAll(spec.Collection, opts)
@@ -435,6 +436,7 @@ func buildLsCmd(spec EntitySpec) *cobra.Command {
 		},
 	}
 	cmd.Flags().String("filter", "", "extra PocketBase filter expression to AND with the org filter")
+	cmd.Flags().String("sort", "", `PocketBase sort expression, e.g. "-updated" or "name"`)
 	return cmd
 }
 
@@ -459,7 +461,7 @@ func buildCreateCmd(spec EntitySpec) *cobra.Command {
 					data["organization"] = c.CurrentOrganization
 				}
 			}
-			client := pb.New(c)
+			client := newPBClient(c)
 			r, err := client.Create(spec.Collection, data)
 			if err != nil {
 				return err
@@ -488,7 +490,7 @@ func buildUpdateCmd(spec EntitySpec) *cobra.Command {
 			if len(data) == 0 {
 				return errors.New("no fields to update; pass at least one flag")
 			}
-			client := pb.New(c)
+			client := newPBClient(c)
 			r, err := client.Update(spec.Collection, args[0], data)
 			if err != nil {
 				return err
@@ -520,7 +522,7 @@ func buildDeleteCmd(spec EntitySpec) *cobra.Command {
 					return errors.New("aborted")
 				}
 			}
-			client := pb.New(c)
+			client := newPBClient(c)
 			if err := client.Delete(spec.Collection, args[0]); err != nil {
 				return err
 			}
@@ -542,7 +544,7 @@ func buildEditCmd(spec EntitySpec) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			client := pb.New(c)
+			client := newPBClient(c)
 			cur, err := client.Get(spec.Collection, args[0])
 			if err != nil {
 				return err

@@ -97,6 +97,24 @@ There are two ways to wire it up:
 Use `stone nats sync-context` to re-issue the context after rotating keys
 (e.g., after `stone nats-user update <id> --regenerate true`).
 
+### When nats-sync skips
+
+`stone org switch` always switches the org; the NATS sync is a separate
+step that can short-circuit. When it does, the output line starts with
+`nats-sync: skipped — <reason>`. Reasons in plain English:
+
+- `no NATS URL on this stone context` — set with `--nats-url nats://host:4222`
+  on `org switch` or `context create`. Persists once.
+- `no membership found for this user+org` — you're acting as an operator
+  on an org you aren't a member of. NATS creds are per-membership.
+- `membership has no linked nats_user` — the platform's hooks haven't
+  provisioned a NATS user for this membership yet.
+- `(--no-nats)` — you passed the flag.
+
+Pass `--verbose` to either `stone org switch` or `stone nats sync-context`
+to see the user id, membership id, NATS user id, and `creds_file` length
+on stderr.
+
 ## Pull / apply
 
 `stone pull` writes one YAML file per record into `<workspace>/<collection>/`.

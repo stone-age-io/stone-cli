@@ -5,6 +5,8 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
+	"github.com/stone-age-io/stone-cli/internal/ctx"
+	"github.com/stone-age-io/stone-cli/internal/pb"
 )
 
 var (
@@ -14,6 +16,7 @@ var (
 	// Persistent flags available on every command.
 	flagContext string
 	flagOutput  string
+	flagDebug   bool
 )
 
 var rootCmd = &cobra.Command{
@@ -36,7 +39,17 @@ func Execute() {
 func init() {
 	rootCmd.PersistentFlags().StringVar(&flagContext, "context", "", "context name to use (overrides active context)")
 	rootCmd.PersistentFlags().StringVarP(&flagOutput, "output", "o", "", "output format: table | json | yaml")
+	rootCmd.PersistentFlags().BoolVar(&flagDebug, "debug", false, "log HTTP requests and responses to stderr")
 
 	// Subcommands are wired up in their own init() funcs by importing them
 	// indirectly via this package; see individual command files.
+}
+
+// newPBClient is the canonical way commands construct a PocketBase client.
+// It applies the persistent --debug flag so every HTTP call is logged when
+// the user asks for it.
+func newPBClient(c ctx.Context) *pb.Client {
+	cl := pb.New(c)
+	cl.Debug = flagDebug
+	return cl
 }

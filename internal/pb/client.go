@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -21,6 +22,21 @@ type Client struct {
 	BaseURL string
 	Token   string
 	HTTP    *http.Client
+	Debug   bool // when true, log requests and responses to stderr
+}
+
+// debugBodyLimit caps the size of the body slice we log so a 4 MB pull
+// response doesn't paint the terminal.
+const debugBodyLimit = 4096
+
+func logBody(buf []byte) string {
+	if len(buf) == 0 {
+		return "(empty)"
+	}
+	if len(buf) <= debugBodyLimit {
+		return string(buf)
+	}
+	return string(buf[:debugBodyLimit]) + fmt.Sprintf("\n... (%d bytes truncated)", len(buf)-debugBodyLimit)
 }
 
 // New returns a client configured from the given context.
@@ -259,6 +275,19 @@ func (c *Client) do(method, path string, body io.Reader, needAuth bool) (*http.R
 	if needAuth && c.Token == "" {
 		return nil, errors.New("not authenticated. run: stone auth login")
 	}
+
+	// When debug is on, buffer the request body so we can log it AND still
+	// hand a fresh reader to http.NewRequest.
+	var reqBytes []byte
+	if c.Debug && body != nil {
+		var err error
+		reqBytes, err = io.ReadAll(body)
+		if err != nil {
+			return nil, fmt.Errorf("read request body for debug: %w", err)
+		}
+		body = bytes.NewReader(reqBytes)
+	}
+
 	req, err := http.NewRequest(method, c.BaseURL+path, body)
 	if err != nil {
 		return nil, err
@@ -270,7 +299,30 @@ func (c *Client) do(method, path string, body io.Reader, needAuth bool) (*http.R
 	if c.Token != "" {
 		req.Header.Set("Authorization", c.Token)
 	}
-	return c.HTTP.Do(req)
+
+	if c.Debug {
+		fmt.Fprintf(os.Stderr, "[debug] -> %s %s\n", method, req.URL.String())
+		if len(reqBytes) > 0 {
+			fmt.Fprintf(os.Stderr, "[debug]    body: %s\n", logBody(reqBytes))
+		}
+	}
+
+	resp, err := c.HTTP.Do(req)
+	if err != nil {
+		if c.Debug {
+			fmt.Fprintf(os.Stderr, "[debug] <- transport error: %v\n", err)
+		}
+		return nil, err
+	}
+
+	if c.Debug {
+		// Drain the body so we can log it, then replace it for the caller.
+		respBytes, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		resp.Body = io.NopCloser(bytes.NewReader(respBytes))
+		fmt.Fprintf(os.Stderr, "[debug] <- %d %s  body: %s\n", resp.StatusCode, http.StatusText(resp.StatusCode), logBody(respBytes))
+	}
+	return resp, nil
 }
 
 // PBError is the standard error shape PocketBase returns.

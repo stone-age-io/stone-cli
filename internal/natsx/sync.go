@@ -48,6 +48,13 @@ type SyncOptions struct {
 	SetSelected  bool        // also update ~/.config/nats/context.txt
 }
 
+// SyncResult reports where files landed and what label to use.
+type SyncResult struct {
+	Name      string // nats-cli context name
+	CredsPath string // absolute path to the written .creds file
+	CtxPath   string // absolute path to the written nats-cli context JSON
+}
+
 // natsContextName returns the canonical nats-cli context name for a stone
 // context + org pair: "stone-<stoneCtx>-<sanitizedOrgName>".
 func natsContextName(stoneCtx, orgName string) string {
@@ -55,13 +62,14 @@ func natsContextName(stoneCtx, orgName string) string {
 }
 
 // SyncContextForOrg writes the .creds file plus a nats-cli context JSON for
-// the given org, then returns the resulting nats-cli context name.
-func SyncContextForOrg(opts SyncOptions) (string, error) {
+// the given org, returning paths and the resulting nats-cli context name.
+func SyncContextForOrg(opts SyncOptions) (SyncResult, error) {
+	var res SyncResult
 	if opts.NATSURL == "" {
-		return "", errors.New("no NATS URL set on the stone context (run: stone context create --nats-url ...)")
+		return res, errors.New("no NATS URL set on the stone context (run: stone context create --nats-url ...)")
 	}
 	if opts.OrgName == "" {
-		return "", errors.New("org name is required")
+		return res, errors.New("org name is required")
 	}
 
 	credsContent, _ := opts.NATSUser["creds_file"].(string)
@@ -75,28 +83,30 @@ func SyncContextForOrg(opts SyncOptions) (string, error) {
 		}
 	}
 	if credsContent == "" {
-		return "", errors.New("nats_users record has no creds_file (and no jwt+seed to build one); set 'regenerate=true' on the record to re-issue")
+		return res, errors.New("nats_users record has no creds_file (and no jwt+seed to build one); set 'regenerate=true' on the record to re-issue")
 	}
 
-	name := natsContextName(opts.StoneContext, opts.OrgName)
-	credsPath, err := writeCredsFile(name, credsContent)
+	res.Name = natsContextName(opts.StoneContext, opts.OrgName)
+	credsPath, err := writeCredsFile(res.Name, credsContent)
 	if err != nil {
-		return "", err
+		return res, err
 	}
-	ctxPath, err := writeNATSContextFile(name, natsCtxFile{
+	res.CredsPath = credsPath
+	ctxPath, err := writeNATSContextFile(res.Name, natsCtxFile{
 		Description: defaultDescription(opts),
 		URL:         opts.NATSURL,
 		Creds:       credsPath,
 	})
 	if err != nil {
-		return "", err
+		return res, err
 	}
+	res.CtxPath = ctxPath
 	if opts.SetSelected {
-		if err := setSelectedContext(name); err != nil {
-			return name, fmt.Errorf("wrote %s but failed to set selected: %w", ctxPath, err)
+		if err := setSelectedContext(res.Name); err != nil {
+			return res, fmt.Errorf("wrote %s but failed to set selected: %w", ctxPath, err)
 		}
 	}
-	return name, nil
+	return res, nil
 }
 
 func defaultDescription(opts SyncOptions) string {
