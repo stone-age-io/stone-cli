@@ -33,7 +33,7 @@ State lives under `$XDG_CONFIG_HOME/stone/` (e.g. `~/.config/stone/`). It is **p
    ```sh
    stone org current
    ```
-   - If empty and the user's task touches an **org-scoped** collection (everything except `organization`, `membership`, `invite`, and `nats-account`), pick one:
+   - If empty and the user's task touches a collection the CLI auto-filters by org (`OrgScoped: true` in `cmd/entity.go` — everything except `organization` and `membership`), pick one. (`membership` carries an org relation but is intentionally not auto-filtered so users see memberships across every org; `organization` access is gated server-side by `is_operator`.)
      ```sh
      stone org ls
      stone org switch <name>          # also writes per-org NATS creds when nats_url is set
@@ -62,11 +62,12 @@ Verbs `ls / create / update / delete / edit` are synthesized from a single `Enti
 | Entity | Org-scoped | Verbs |
 |---|---|---|
 | `thing`, `location`, `thing-type`, `thing-type-operation`, `message-schema` | yes | full |
-| `membership`, `invite` | no | full |
-| `organization` | no | full |
+| `invite` | yes | full |
 | `nats-user`, `nats-role`, `nats-import`, `nats-export` | yes | full |
 | `nebula-network`, `nebula-host` | yes | full |
-| `nats-account`, `nebula-ca` | partial | `ls / update / edit` only |
+| `nats-account`, `nebula-ca` | yes | `ls / update / edit` only |
+| `membership` | no (org relation present, but not auto-filtered) | full |
+| `organization` | no (gated server-side by `is_operator`) | full |
 
 ### Field flag rules
 

@@ -27,7 +27,7 @@ Per-user state lives under `$XDG_CONFIG_HOME/stone/`. Before doing real work, fo
 
 Step 2 cannot be automated by an assistant — `auth login` prompts for credentials. Surface it to the user.
 
-Step 3 is required for any **org-scoped** collection. Everything is org-scoped except `organization`, `membership`, `invite`, and `nats-account` (which is provisioned by the platform).
+Step 3 is required for any collection the CLI auto-filters by org (the `OrgScoped` flag in `cmd/entity.go`). That covers everything except `organization` and `membership`. `membership` records *do* carry an `organization` relation, but the CLI deliberately doesn't filter them by current org — users typically want to see their memberships across every org they belong to. `organization` access is gated server-side by `is_operator`.
 
 If the user needs NATS, ensure `--nats-url` was passed at step 1 (or re-run `org switch --nats-url ...`). Without it, `org switch` prints `nats-sync: skipped — no NATS URL on this stone context` and downstream `nats`/`kv` commands fall back to the user's default nats-cli context.
 
@@ -54,11 +54,11 @@ Verbs `ls / create / update / delete / edit` are derived from a single declarati
 | `message-schema` | `message_schemas` | yes | full |
 | `organization` | `organizations` | no | full |
 | `membership` | `memberships` | no | full |
-| `invite` | `invites` | no | full |
+| `invite` | `invites` | yes | full |
 | `nats-user` | `nats_users` | yes | full |
 | `nats-role` | `nats_roles` | yes | full |
-| `nats-import` | `nats_imports` | yes | full |
-| `nats-export` | `nats_exports` | yes | full |
+| `nats-import` | `nats_account_imports` | yes | full |
+| `nats-export` | `nats_account_exports` | yes | full |
 | `nebula-network` | `nebula_networks` | yes | full |
 | `nebula-host` | `nebula_hosts` | yes | full |
 | `nats-account` | `nats_accounts` | yes | `ls / update / edit` |
