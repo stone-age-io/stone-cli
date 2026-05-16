@@ -20,9 +20,8 @@ import (
 
 var jsCmd = &cobra.Command{
 	Use:   "js",
-	Short: "Manage JetStream streams and KV buckets",
-	Long: `JetStream administration commands. The data-plane KV operations
-(get/put/del/watch/ls keys) live under 'stone kv'.`,
+	Short: "Manage JetStream streams",
+	Long:  `JetStream stream administration. KV buckets and data ops live under 'stone kv'.`,
 }
 
 // ---- streams ----------------------------------------------------------------
@@ -178,11 +177,12 @@ var jsStreamDeleteCmd = &cobra.Command{
 }
 
 // ---- KV buckets -------------------------------------------------------------
+// Wired under `stone kv bucket` in cmd/kv.go init().
 
 var jsBucketCmd = &cobra.Command{
 	Use:     "bucket",
-	Aliases: []string{"buckets", "kv"},
-	Short:   "Manage JetStream KV buckets (lifecycle only; use 'stone kv' for data)",
+	Aliases: []string{"buckets"},
+	Short:   "Manage KV bucket lifecycle (create/list/info/delete)",
 }
 
 var jsBucketLsCmd = &cobra.Command{
@@ -513,6 +513,7 @@ func init() {
 
 	jsStreamCmd.AddCommand(jsStreamLsCmd, jsStreamInfoCmd, jsStreamCreateCmd, jsStreamPurgeCmd, jsStreamDeleteCmd)
 	jsBucketCmd.AddCommand(jsBucketLsCmd, jsBucketInfoCmd, jsBucketCreateCmd, jsBucketDeleteCmd)
-	jsCmd.AddCommand(jsStreamCmd, jsBucketCmd)
+	// jsBucketCmd is attached to kvCmd in cmd/kv.go init().
+	jsCmd.AddCommand(jsStreamCmd)
 	rootCmd.AddCommand(jsCmd)
 }

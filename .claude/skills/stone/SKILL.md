@@ -78,14 +78,32 @@ Verbs `ls / create / update / delete / edit` are synthesized from a single `Enti
   - stdin: `--metadata -`
 - **Selects/multiselects** (e.g. `--capabilities publish,subscribe`) are validated against a whitelist; the CLI prints the choices in `--help`.
 
+### Auth collections (`thing`, `nats-user`, `nebula-host`)
+
+These collections are PocketBase auth records. The CLI handles two PB quirks for you:
+
+- `passwordConfirm` is mirrored from `password` automatically; never pass it yourself.
+- `emailVisibility` defaults to `true` on create when a password is supplied.
+
+On `create` you must pass exactly one of:
+- `--password '<value>'` — explicit password (min 8 chars).
+- `--random-password` — CLI generates a 32-char URL-safe password and prints it **to stderr** (stdout stays clean for parsers). Prefer this for non-interactive flows where you'll capture stderr.
+
 ### Examples
 
 ```sh
 stone location create --name "HQ" --code hq -o json
 stone thing-type create --name "Temp Sensor" --code temp \
     --subject-prefix telemetry.sensors --capabilities publish,subscribe -o json
+
+# Explicit password
 stone thing create --email s42@example.com --password 'changeMe123!' \
     --code sensor-42 --type <thing_type_id> --location <location_id> -o json
+
+# CLI-generated password (printed once to stderr)
+stone thing create --email s43@example.com --random-password \
+    --code sensor-43 --type <thing_type_id> -o json 2> pw.txt
+
 stone thing edit <thing_id>        # opens $EDITOR with YAML, PATCHes on save
 ```
 
@@ -114,16 +132,21 @@ Important semantics:
 stone nats pub demo.hello 'world'
 stone nats pub events.x @./payload.json --js   # JetStream publish; prints ack
 stone nats sub 'demo.>'
-stone nats request svc.echo 'ping' --timeout 5s
+stone nats req svc.echo 'ping' --timeout 5s
 
 stone kv get twins device.42
 stone kv put twins device.42 '{"online":true}'
 stone kv put twins device.42 @./twin.json
+stone kv ls twins                              # list keys in the bucket
 stone kv watch twins
+
+stone kv bucket ls                             # list all KV buckets
+stone kv bucket info twins
+stone kv bucket create twins --history 5 --ttl 720h
+stone kv bucket delete twins
 
 stone js stream ls
 stone js stream create twins --subject 'twins.>' --max-age 24h --storage file
-stone js bucket create twins --history 5 --ttl 720h
 
 stone nats sync-context        # re-issue per-org creds after key rotation
 ```

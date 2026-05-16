@@ -10,7 +10,7 @@ This document describes the `stone` CLI's capability surface for integration wit
 - Operate declaratively on a YAML workspace via `pull` and `apply` (PocketBase `/api/batch`, up to 50 ops per request, idempotent, no deletes).
 - Publish, subscribe, request on NATS, including JetStream publish.
 - Read and write JetStream KV buckets.
-- Administer JetStream streams and KV bucket lifecycle (consumer management is intentionally out of scope — use the `nats` CLI).
+- Administer JetStream streams (`stone js stream`) and KV bucket lifecycle (`stone kv bucket`). Consumer management is intentionally out of scope — use the `nats` CLI.
 
 The CLI authenticates to a PocketBase server and reuses the user's nats-cli contexts (with per-org sync after `org switch`).
 
@@ -79,6 +79,20 @@ Verbs `ls / create / update / delete / edit` are derived from a single declarati
 
 The lack of a name-to-id resolver is deliberate: discover ids via `stone <type> ls -o json` first.
 
+### Auth-collection ergonomics
+
+`thing`, `nats-user`, and `nebula-host` are PocketBase auth collections. The CLI smooths over two PB requirements so callers don't have to think about them:
+
+- When a non-empty `password` is sent on create or update, `passwordConfirm` is mirrored to match, and `emailVisibility` defaults to `true` if unset. This applies to typed CRUD, `apply`, and `edit`.
+- On `create`, pass `--random-password` instead of `--password` to have the CLI generate a 32-char URL-safe password (`crypto/rand`, base64). The generated value is printed once to **stderr** so stdout stays clean for parsers. `--password` and `--random-password` are mutually exclusive; exactly one is required.
+
+```sh
+stone thing create --email reader-01@things.example.com --code reader-01 \
+    --type <thing_type_id> --random-password -o json
+# stderr: generated password: <value>
+# stdout: { ...record... }
+```
+
 ## Declarative workflow
 
 ```sh
@@ -102,13 +116,18 @@ Put the workspace under git for diff, history, and review.
 stone nats pub <subject> <payload>                    # payload may be literal, @file, or -
 stone nats pub <subject> @msg.json --js               # JetStream publish, prints ack
 stone nats sub <subject>                              # subscribe (Ctrl-C to stop)
-stone nats request <subject> <payload> --timeout 5s
+stone nats req <subject> <payload> --timeout 5s
 
 stone kv get <bucket> <key>
 stone kv put <bucket> <key> <value>                   # value: literal, @file, or -
 stone kv del <bucket> <key>
 stone kv watch <bucket>
-stone kv ls <bucket>                                  # list keys
+stone kv ls <bucket>                                  # list keys in <bucket>
+
+stone kv bucket ls                                    # list all KV buckets
+stone kv bucket info <name>
+stone kv bucket create <name> --history 5 --ttl 720h
+stone kv bucket delete <name>
 
 stone js stream ls
 stone js stream info <name>
@@ -116,11 +135,6 @@ stone js stream create <name> --subject 'foo.>' --max-age 24h --storage file
 stone js stream create <name> --config stream.yaml    # advanced
 stone js stream purge <name>
 stone js stream delete <name>
-
-stone js bucket ls
-stone js bucket info <name>
-stone js bucket create <name> --history 5 --ttl 720h
-stone js bucket delete <name>
 
 stone nats sync-context                               # re-issue per-org creds after rotation
 ```

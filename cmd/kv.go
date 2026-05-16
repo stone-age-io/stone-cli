@@ -15,7 +15,9 @@ import (
 
 var kvCmd = &cobra.Command{
 	Use:   "kv",
-	Short: "Read and write JetStream Key/Value buckets",
+	Short: "Manage JetStream Key/Value buckets and their data",
+	Long: `Read and write JetStream KV bucket data, and manage bucket
+lifecycle (create/list/info/delete) via the 'bucket' subcommand.`,
 }
 
 var kvGetCmd = &cobra.Command{
@@ -169,5 +171,8 @@ func openKV(bucket string) (jetstream.KeyValue, func(), error) {
 
 func init() {
 	kvCmd.AddCommand(kvGetCmd, kvPutCmd, kvDelCmd, kvLsCmd, kvWatchCmd)
+	// jsBucketCmd is defined in cmd/js.go alongside its subcommands; we attach
+	// it under kv so bucket lifecycle lives at `stone kv bucket ...`.
+	kvCmd.AddCommand(jsBucketCmd)
 	rootCmd.AddCommand(kvCmd)
 }

@@ -33,6 +33,15 @@ var orgLsCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
+		// Tag the active org so callers can identify it in any format.
+		for _, it := range items {
+			id, _ := it["id"].(string)
+			it["current"] = id == c.CurrentOrganization
+		}
+		out := resolveOutput()
+		if out == "json" || out == "yaml" {
+			return pb.PrintList(os.Stdout, items, []string{"id", "name", "current"}, out)
+		}
 		if len(items) == 0 {
 			fmt.Println("no organizations visible to this user")
 			return nil

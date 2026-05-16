@@ -32,6 +32,8 @@ go build -o stone
 ./stone location create --name "HQ" --code hq
 ./stone thing-type create --name "Temp Sensor" --code temp-sensor \
     --subject-prefix "telemetry.sensors" --capabilities publish
+./stone thing create --email s42@example.com --code sensor-42 \
+    --type <thing_type_id> --random-password        # password printed to stderr
 
 # 6) Or use the declarative workflow
 mkdir my-workspace && cd my-workspace && git init
@@ -142,22 +144,54 @@ Limited CRUD (`ls / update / edit` only — auto-provisioned by the platform):
 
 `edit <id>` opens `$EDITOR` with the record as YAML and PATCHes on save.
 
-## JetStream admin (`stone js`)
+### Auth-collection conveniences
+
+`thing`, `nats-user`, and `nebula-host` are PocketBase auth collections. On create
+and on password change, PB requires `passwordConfirm` to match `password` and
+`emailVisibility` to be set explicitly. `stone` fills both in for you when a
+non-empty `password` is present (typed CRUD, `apply`, and `edit` all benefit).
+
+For non-interactive flows, pass `--random-password` to `create` instead of
+`--password`. The CLI generates a 32-char URL-safe password via `crypto/rand`
+and prints it once to **stderr**, so stdout stays clean for `jq`:
 
 ```sh
-# Streams
+./stone thing create --email reader-01@things.example.com --code reader-01 \
+    --type <thing_type_id> --random-password -o json 2> reader-01.pw
+```
+
+`--password` and `--random-password` are mutually exclusive; exactly one must be
+passed.
+
+## JetStream streams (`stone js stream`)
+
+```sh
 ./stone js stream ls
 ./stone js stream info <name>
 ./stone js stream create twins --subject "twins.>" --max-age 24h --storage file
 ./stone js stream create twins --config stream.yaml      # advanced config
 ./stone js stream purge <name>
 ./stone js stream delete <name>
+```
 
-# KV buckets (lifecycle only; use 'stone kv' for data ops)
-./stone js bucket ls
-./stone js bucket info <name>
-./stone js bucket create twins --history 5 --ttl 720h
-./stone js bucket delete <name>
+## KV (`stone kv`)
+
+All KV operations — bucket lifecycle and per-key data — live under `stone kv`.
+
+```sh
+# Bucket lifecycle
+./stone kv bucket ls
+./stone kv bucket info <name>
+./stone kv bucket create twins --history 5 --ttl 720h
+./stone kv bucket delete <name>
+
+# Data ops
+./stone kv get twins device.42
+./stone kv put twins device.42 '{"online":true}'
+./stone kv put twins device.42 @./twin.json
+./stone kv del twins device.42
+./stone kv ls twins                                       # list keys in a bucket
+./stone kv watch twins
 ```
 
 ## Limitations
@@ -170,6 +204,21 @@ Limited CRUD (`ls / update / edit` only — auto-provisioned by the platform):
 - `nats-account` and `nebula-ca` updates that touch limits or infrastructure
   fields require operator-level credentials server-side. Org admins can only
   trigger key/CA rotation (`rotate_keys: true`).
+
+## AI assistant integration
+
+`stone` ships a capability surface aimed at AI assistants that can shell out to
+the CLI:
+
+- [`SKILLS.md`](./SKILLS.md) — human-readable reference of what the CLI can do,
+  bootstrap order, entity surface, NATS sync semantics, and known limitations.
+- [`.claude/skills/stone/SKILL.md`](./.claude/skills/stone/SKILL.md) — imperative
+  Claude Code skill auto-loaded when the user's request matches its trigger
+  description (commands starting with `stone`, "create a thing", "switch org",
+  "pull the workspace", etc.).
+
+Both files describe the same surface but with different audiences. Update both
+when you change command shapes that an assistant might rely on.
 
 ## Development
 
