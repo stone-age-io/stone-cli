@@ -185,7 +185,7 @@ func (c *Client) Get(collection, id string) (Record, error) {
 
 // Create posts a new record.
 func (c *Client) Create(collection string, data Record) (Record, error) {
-	body, err := json.Marshal(data)
+	body, err := json.Marshal(withAuthDefaults(data))
 	if err != nil {
 		return nil, err
 	}
@@ -203,7 +203,7 @@ func (c *Client) Create(collection string, data Record) (Record, error) {
 
 // Update PATCHes a record by id.
 func (c *Client) Update(collection, id string, data Record) (Record, error) {
-	body, err := json.Marshal(data)
+	body, err := json.Marshal(withAuthDefaults(data))
 	if err != nil {
 		return nil, err
 	}
@@ -248,6 +248,9 @@ func (c *Client) Batch(ops []BatchOp) ([]BatchResponseItem, error) {
 	if len(ops) == 0 {
 		return nil, nil
 	}
+	for i := range ops {
+		ops[i].Body = withAuthDefaults(ops[i].Body)
+	}
 	body, err := json.Marshal(map[string]any{"requests": ops})
 	if err != nil {
 		return nil, err
@@ -265,6 +268,35 @@ func (c *Client) Batch(ops []BatchOp) ([]BatchResponseItem, error) {
 		return nil, fmt.Errorf("decode batch: %w", err)
 	}
 	return items, nil
+}
+
+// withAuthDefaults fills in fields PocketBase auth collections require but
+// our typed CRUD layer doesn't model: passwordConfirm (must match password)
+// and emailVisibility (defaults to true so things/nats_users/nebula_hosts
+// are addressable by email). Triggered by the presence of a non-empty
+// password, which reliably signals an auth-collection create or password
+// change. Callers that explicitly set either field keep their value.
+func withAuthDefaults(data Record) Record {
+	pw, ok := data["password"].(string)
+	if !ok || pw == "" {
+		return data
+	}
+	_, hasConfirm := data["passwordConfirm"]
+	_, hasVisibility := data["emailVisibility"]
+	if hasConfirm && hasVisibility {
+		return data
+	}
+	out := make(Record, len(data)+2)
+	for k, v := range data {
+		out[k] = v
+	}
+	if !hasConfirm {
+		out["passwordConfirm"] = pw
+	}
+	if !hasVisibility {
+		out["emailVisibility"] = true
+	}
+	return out
 }
 
 // do issues an HTTP request, optionally requiring auth.

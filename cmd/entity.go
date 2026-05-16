@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"bufio"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,6 +17,17 @@ import (
 	"github.com/stone-age-io/stone-cli/internal/pb"
 	"gopkg.in/yaml.v3"
 )
+
+// generatePassword returns a 32-char URL-safe random password (24 bytes of
+// crypto/rand, base64-encoded without padding). Comfortably above PB's
+// 8-char minimum.
+func generatePassword() (string, error) {
+	b := make([]byte, 24)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(b), nil
+}
 
 // FieldType is the typed flag value for an entity field.
 type FieldType string
@@ -441,6 +454,7 @@ func buildLsCmd(spec EntitySpec) *cobra.Command {
 }
 
 func buildCreateCmd(spec EntitySpec) *cobra.Command {
+	hasPassword := spec.field("password") != nil
 	cmd := &cobra.Command{
 		Use:   "create",
 		Short: fmt.Sprintf("Create a %s", spec.Name),
@@ -448,6 +462,27 @@ func buildCreateCmd(spec EntitySpec) *cobra.Command {
 			c, err := ctx.Active(flagContext)
 			if err != nil {
 				return err
+			}
+			var generatedPW string
+			if hasPassword {
+				rnd, _ := cmd.Flags().GetBool("random-password")
+				pwSet := cmd.Flags().Changed("password")
+				if !rnd && !pwSet {
+					return errors.New("must pass --password or --random-password")
+				}
+				if rnd && pwSet {
+					return errors.New("cannot pass both --password and --random-password")
+				}
+				if rnd {
+					pw, err := generatePassword()
+					if err != nil {
+						return fmt.Errorf("generate password: %w", err)
+					}
+					if err := cmd.Flags().Set("password", pw); err != nil {
+						return err
+					}
+					generatedPW = pw
+				}
 			}
 			data, err := collectFields(cmd, spec, true)
 			if err != nil {
@@ -466,10 +501,21 @@ func buildCreateCmd(spec EntitySpec) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if generatedPW != "" {
+				fmt.Fprintf(os.Stderr, "generated password: %s\n", generatedPW)
+			}
 			return pb.PrintRecord(os.Stdout, r, resolveOutput())
 		},
 	}
 	addFieldFlags(cmd, spec, true)
+	if hasPassword {
+		cmd.Flags().Bool("random-password", false, "generate a strong random password and print it to stderr (mutually exclusive with --password)")
+		// addFieldFlags marked --password as Cobra-required from the spec.
+		// Now that --random-password is an alternative, do that check in RunE.
+		if pf := cmd.Flag("password"); pf != nil {
+			delete(pf.Annotations, cobra.BashCompOneRequiredFlag)
+		}
+	}
 	return cmd
 }
 
