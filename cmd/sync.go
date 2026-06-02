@@ -19,7 +19,8 @@ const batchSize = 50
 var pullCmd = &cobra.Command{
 	Use:   "pull [<collection>...]",
 	Short: "Pull records into the workspace as YAML files",
-	Long: `Pull writes one YAML file per record into <workspace>/<collection>/.
+	Long: `Pull writes one YAML file per record into <workspace>/<collection>/,
+named by the record's natural key (code, name, hostname, ...; falls back to id).
 Org-scoped collections are filtered to the current organization.
 Pass collection names to limit; otherwise all known collections are pulled.`,
 	RunE: runPull,

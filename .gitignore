@@ -1,5 +1,5 @@
-stone
-stone.exe
+/stone
+/stone.exe
 /dist/
 *.test
 *.out

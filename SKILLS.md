@@ -43,28 +43,32 @@ Persistent flags on every command:
 
 ## Entity surface
 
-Verbs `ls / create / update / delete / edit` are derived from a single declarative table (`EntitySpec` in `cmd/entity.go`). Name aliases mean `stone thing`, `stone things`, `stone thing_type`, and `stone thing-types` all resolve to the right command.
+Verbs `ls / get / create / update / delete / edit` are derived from a single declarative table (`EntitySpec` in `cmd/entity.go`). Name aliases mean `stone thing`, `stone things`, `stone thing_type`, and `stone thing-types` all resolve to the right command.
 
-| Entity | Collection | Org-scoped | Verbs |
-|---|---|---|---|
-| `thing` | `things` | yes | full |
-| `location` | `locations` | yes | full |
-| `thing-type` | `thing_types` | yes | full |
-| `thing-type-operation` | `thing_type_operations` | yes | full |
-| `message-schema` | `message_schemas` | yes | full |
-| `organization` | `organizations` | no | full |
-| `membership` | `memberships` | no | full |
-| `invite` | `invites` | yes | full |
-| `nats-user` | `nats_users` | yes | full |
-| `nats-role` | `nats_roles` | yes | full |
-| `nats-import` | `nats_account_imports` | yes | full |
-| `nats-export` | `nats_account_exports` | yes | full |
-| `nebula-network` | `nebula_networks` | yes | full |
-| `nebula-host` | `nebula_hosts` | yes | full |
-| `nats-account` | `nats_accounts` | yes | `ls / update / edit` |
-| `nebula-ca` | `nebula_ca` | yes | `ls / update / edit` |
+| Entity | Collection | Org-scoped | Lookup key | Verbs |
+|---|---|---|---|---|
+| `thing` | `things` | yes | `code` | full |
+| `location` | `locations` | yes | `code` | full |
+| `thing-type` | `thing_types` | yes | `code` | full |
+| `thing-type-operation` | `thing_type_operations` | yes | `name` | full |
+| `message-schema` | `message_schemas` | yes | `name` | full |
+| `organization` | `organizations` | no | `name` | full |
+| `membership` | `memberships` | no | — (id only) | full |
+| `invite` | `invites` | yes | `email` | full |
+| `nats-user` | `nats_users` | yes | `nats_username` | full |
+| `nats-role` | `nats_roles` | yes | `name` | full |
+| `nats-import` | `nats_account_imports` | yes | `name` | full |
+| `nats-export` | `nats_account_exports` | yes | `name` | full |
+| `nebula-network` | `nebula_networks` | yes | `name` | full |
+| `nebula-host` | `nebula_hosts` | yes | `hostname` | full |
+| `nats-account` | `nats_accounts` | yes | `name` | `ls / get / update / edit` |
+| `nebula-ca` | `nebula_ca` | yes | `name` | `ls / get / update / edit` |
 
-`edit <id>` opens the record as YAML in `$EDITOR` and PATCHes on save.
+`get`, `update`, `delete`, and `edit` take a positional `<id|lookup-key>`: either a 15-char PocketBase id or the entity's lookup key from the table above. Key lookups are exact-match and scoped to the current organization; zero or multiple matches fail, with candidate ids listed on ambiguity.
+
+`get` (alias `show`) prints one record. Both `get` and `ls` accept `--fields a,b,c` for server-side projection (PocketBase's `fields` query param); on `ls` table output the requested fields become the columns.
+
+`edit` opens the record as YAML in `$EDITOR` and PATCHes on save.
 
 ### Field types
 
@@ -73,11 +77,11 @@ Verbs `ls / create / update / delete / edit` are derived from a single declarati
 | string, int, bool | `--name foo`, `--validity-years 5`, `--active true` | |
 | select | `--capability publish` | validated against a whitelist |
 | multiselect | `--capabilities publish,subscribe` | comma-separated |
-| relation (id) | `--type abc123def456ghi` | **15-char PocketBase id only**, no name lookup |
+| relation (id) | `--type abc123def456ghi` | **15-char PocketBase id only** — natural keys resolve on positional args, never on relation flags |
 | relation list (ids) | `--operations id1,id2` or repeated flag | |
 | JSON | `--metadata '{"k":"v"}'`, `--metadata @file.json`, `--metadata -` | inline, file, or stdin |
 
-The lack of a name-to-id resolver is deliberate: discover ids via `stone <type> ls -o json` first.
+Relation flags deliberately have no name-to-id resolver: discover ids via `stone <type> get <key> --fields id -o json` or `stone <type> ls -o json` first.
 
 ### Auth-collection ergonomics
 
@@ -96,7 +100,7 @@ stone thing create --email reader-01@things.example.com --code reader-01 \
 ## Declarative workflow
 
 ```sh
-stone pull                                  # writes <workspace>/<collection>/<code>.yaml per record
+stone pull                                  # writes <workspace>/<collection>/<lookup-key>.yaml per record
 stone apply                                 # POSTs through /api/batch in 50-record transactions
 stone apply path/to/dir path/to/file.yaml   # restrict to specific paths
 ```
@@ -104,7 +108,8 @@ stone apply path/to/dir path/to/file.yaml   # restrict to specific paths
 Properties:
 
 - **Idempotent.** Records with an `id` are PATCHed; records without are POSTed and the returned id is written back into the file.
-- **No deletes.** Records present on the server but absent locally are left alone. For deletion, use `stone <type> delete <id>` or the web UI.
+- **Friendly filenames.** Files are named by the entity's lookup key (message-schemas: `namespace__name__version`; fallback `name`, then id). Filename collisions get a `-<id>` suffix, and pulls are sorted by id so the suffix lands on the same record across runs. Filenames are cosmetic — `apply` keys on the `id` field inside each file.
+- **No deletes.** Records present on the server but absent locally are left alone. For deletion, use `stone <type> delete <id|key>` or the web UI.
 - **Org-scoped auto-fill.** On create, the current organization is injected into org-scoped records that don't already have one.
 - **Server-managed fields ignored.** `collectionId`, `collectionName`, `created`, `updated` are stripped on pull and ignored on apply.
 
@@ -163,7 +168,7 @@ The `nats-sync: skipped` line is informational, not an error:
 
 ## Known limitations
 
-- Relation flags do not resolve names — pass 15-char PocketBase ids only.
+- Relation flags do not resolve names — pass 15-char PocketBase ids only. (Positional record args on `get`/`update`/`delete`/`edit` *do* accept natural keys.)
 - `apply` does not delete server records absent from the workspace.
 - No JetStream **consumer** management (use `nats` CLI).
 - `nats-account` and `nebula-ca` updates that touch limits or infrastructure fields require operator-level credentials server-side. Org admins can only trigger rotation via `rotate_keys: true`.

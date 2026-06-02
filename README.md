@@ -34,6 +34,7 @@ go build -o stone
     --subject-prefix "telemetry.sensors" --capabilities publish
 ./stone thing create --email s42@example.com --code sensor-42 \
     --type <thing_type_id> --random-password        # password printed to stderr
+./stone thing get sensor-42 --fields code,name,location   # read back by code or id
 
 # 6) Or use the declarative workflow
 mkdir my-workspace && cd my-workspace && git init
@@ -119,8 +120,12 @@ on stderr.
 
 ## Pull / apply
 
-`stone pull` writes one YAML file per record into `<workspace>/<collection>/`.
-Org-scoped collections are filtered to the current organization.
+`stone pull` writes one YAML file per record into `<workspace>/<collection>/`,
+named by the record's natural key — the same keys CRUD lookup uses (`code`,
+`name`, `hostname`, …; message-schemas use `namespace__name__version`), falling
+back to `name`, then id. Filename collisions get a `-<id>` suffix. Filenames
+are cosmetic: `apply` identifies records solely by the `id` field inside each
+file. Org-scoped collections are filtered to the current organization.
 
 `stone apply` walks the workspace (or the paths you pass), groups records into
 batches of up to 50, and POSTs them through PocketBase's transactional `/api/batch`
@@ -131,18 +136,36 @@ For diff/status/history, put the workspace in `git`.
 
 ## Entities supported by typed CRUD
 
-Full CRUD (`ls / create / update / delete / edit`):
+Full CRUD (`ls / get / create / update / delete / edit`):
 
 - Domain: `thing`, `location`, `thing-type`, `thing-type-operation`, `message-schema`
 - Admin: `organization`, `membership`, `invite`
 - NATS: `nats-user`, `nats-role`, `nats-import`, `nats-export`
 - Nebula: `nebula-network`, `nebula-host`
 
-Limited CRUD (`ls / update / edit` only — auto-provisioned by the platform):
+Limited CRUD (`ls / get / update / edit` only — auto-provisioned by the platform):
 
 - `nats-account`, `nebula-ca`
 
-`edit <id>` opens `$EDITOR` with the record as YAML and PATCHes on save.
+`edit` opens `$EDITOR` with the record as YAML and PATCHes on save.
+
+### Lookup by id or natural key
+
+`get`, `update`, `delete`, and `edit` accept either a 15-char PocketBase id or
+the entity's natural key: `code` (`thing`, `location`, `thing-type`),
+`hostname` (`nebula-host`), `nats_username` (`nats-user`), `email` (`invite`),
+and `name` for everything else. `membership` is id-only. Key lookups are
+exact-match and scoped to the current organization; zero or multiple matches
+fail with the candidate ids listed.
+
+`get` (alias `show`) and `ls` take `--fields` for server-side projection; on
+`ls` table output the requested fields become the columns:
+
+```sh
+./stone thing get warehouse-hvac --fields code,name,location
+./stone nebula-host delete edge-west
+./stone thing ls --fields code,name
+```
 
 ### Auth-collection conveniences
 
@@ -196,8 +219,9 @@ All KV operations — bucket lifecycle and per-key data — live under `stone kv
 
 ## Limitations
 
-- Relation flags take 15-char PocketBase ids only. Discover them via
-  `stone <type> ls` and copy.
+- Relation flags (`--type`, `--location`, …) take 15-char PocketBase ids only —
+  natural-key lookup applies to positional args, not to flags. Discover ids via
+  `stone <type> ls` or `stone <type> get <key> --fields id`.
 - Apply does not delete server records that are missing locally. Use the
   web UI or `stone <type> delete` for that.
 - No JetStream consumer management — the `nats` CLI is better at that.
