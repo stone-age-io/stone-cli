@@ -44,10 +44,13 @@ Context names must match `^[A-Za-z0-9_-]{1,50}$` — they're used as filesystem 
 - `Collection` — PocketBase collection name
 - `OrgScoped` — auto-inject `organization` on create / filter by it on `ls`
 - `KeyColumns` — table columns shown by `ls`
-- `Verbs` — empty = full `{ls, create, update, delete, edit}`; non-empty restricts (e.g. `nats-account`, `nebula-ca` are `{ls, update, edit}` only)
+- `Verbs` — empty = full `{ls, get, create, update, delete, edit}`; non-empty restricts (e.g. `nats-account`, `nebula-ca` are `{ls, get, update, edit}` only)
+- `LookupKey` — record field accepted in place of an id by `get`/`update`/`delete`/`edit` (e.g. `code` for things/locations, `name` for most others, `hostname` for nebula-hosts; empty = id only, e.g. membership). Resolution lives in `resolveRecordID`: id-shaped args are tried as ids first, then fall back to an exact, org-scoped `LookupKey` match; 0 or >1 matches error out.
 - `Fields` — typed flags: `FString | FInt | FBool | FJSON | FID | FIDs | FSelect | FMSelect`
 
 `registerCRUD` synthesizes Cobra commands from each spec. **To add a new CRUD entity, add an `EntitySpec` — do not write per-entity command files.** `aliases()` auto-generates plural/underscore/hyphen variants so users can type `nats-users`, `nats_users`, `nats_user`, etc. interchangeably.
+
+`get` and `ls` take `--fields` (comma-separated) for server-side projection via PocketBase's `fields` query param; on `ls` table output the requested fields become the columns.
 
 Field types `FID`/`FIDs` accept 15-char PocketBase relation ids only. `FJSON` fields accept inline JSON, `@<path>`, or `-` (stdin).
 
@@ -89,4 +92,4 @@ The matching shape lives in `natsCtxFile` and must stay compatible with both nat
 - New PocketBase endpoint? Extend `internal/pb/client.go`; don't sprinkle `net/http` into command files.
 - New top-level command? Add a file under `cmd/` and wire it in that file's `init()` via `rootCmd.AddCommand(...)`.
 - Org-scoped collections always need their `organization` field set. `ls` filters by it, `create` injects it, `apply` injects it for files missing an id. If you're working with an org-scoped collection by hand, set it explicitly or rely on those code paths.
-- Relation flags (`FID`/`FIDs`) require literal 15-char PB ids. There is no name-to-id lookup; document that users discover ids via `stone <type> ls`.
+- Positional record args (`get`/`update`/`delete`/`edit`) accept the spec's `LookupKey` value as well as an id. Relation flags (`FID`/`FIDs`) still require literal 15-char PB ids — there is no name-to-id lookup for flags; users discover ids via `stone <type> ls`.

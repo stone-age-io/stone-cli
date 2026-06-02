@@ -169,9 +169,20 @@ func (c *Client) ListAll(collection string, opt ListOptions) ([]Record, error) {
 	return all, nil
 }
 
+// GetOptions narrows a single-record fetch.
+type GetOptions struct {
+	Fields string // comma-separated server-side field projection
+}
+
 // Get fetches a single record by id.
-func (c *Client) Get(collection, id string) (Record, error) {
-	resp, err := c.do(http.MethodGet, "/api/collections/"+url.PathEscape(collection)+"/records/"+url.PathEscape(id), nil, true)
+func (c *Client) Get(collection, id string, opts ...GetOptions) (Record, error) {
+	path := "/api/collections/" + url.PathEscape(collection) + "/records/" + url.PathEscape(id)
+	if len(opts) > 0 && opts[0].Fields != "" {
+		q := url.Values{}
+		q.Set("fields", opts[0].Fields)
+		path += "?" + q.Encode()
+	}
+	resp, err := c.do(http.MethodGet, path, nil, true)
 	if err != nil {
 		return nil, err
 	}

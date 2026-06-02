@@ -60,7 +60,8 @@ type EntitySpec struct {
 	Collection string   // PocketBase collection name
 	OrgScoped  bool     // auto-inject organization on create
 	KeyColumns []string // table columns besides id
-	Verbs      []string // empty = all of {ls, create, update, delete, edit}; otherwise the subset
+	Verbs      []string // empty = all of {ls, get, create, update, delete, edit}; otherwise the subset
+	LookupKey  string   // record field accepted in place of an id on get/update/delete/edit ("" = id only)
 	Fields     []Field
 }
 
@@ -122,6 +123,7 @@ var entitySpecs = []EntitySpec{
 		Collection: "things",
 		OrgScoped:  true,
 		KeyColumns: []string{"code", "name", "type", "location"},
+		LookupKey:  "code",
 		Fields: []Field{
 			{Name: "email", Type: FString, Required: true, Help: "thing's auth email (required by the things auth collection)"},
 			{Name: "password", Type: FString, Required: true, Help: "thing's auth password (min 8 chars)"},
@@ -141,6 +143,7 @@ var entitySpecs = []EntitySpec{
 		Collection: "locations",
 		OrgScoped:  true,
 		KeyColumns: []string{"code", "name", "type", "parent"},
+		LookupKey:  "code",
 		Fields: []Field{
 			{Name: "name", Type: FString, Help: "display name"},
 			{Name: "code", Type: FString, Help: "stable short code"},
@@ -156,6 +159,7 @@ var entitySpecs = []EntitySpec{
 		Collection: "thing_types",
 		OrgScoped:  true,
 		KeyColumns: []string{"code", "name", "capabilities", "subject_prefix"},
+		LookupKey:  "code",
 		Fields: []Field{
 			{Name: "name", Type: FString, Help: "display name"},
 			{Name: "code", Type: FString, Help: "stable short code"},
@@ -171,6 +175,7 @@ var entitySpecs = []EntitySpec{
 		Collection: "thing_type_operations",
 		OrgScoped:  true,
 		KeyColumns: []string{"name", "capability", "subject_suffix", "schema"},
+		LookupKey:  "name",
 		Fields: []Field{
 			{Name: "name", Type: FString, Required: true, Help: "operation name (lowercase letters, digits, underscore)"},
 			{Name: "capability", Type: FSelect, Values: []string{"publish", "subscribe", "request", "reply"}, Required: true, Help: "NATS capability"},
@@ -185,6 +190,7 @@ var entitySpecs = []EntitySpec{
 		Collection: "message_schemas",
 		OrgScoped:  true,
 		KeyColumns: []string{"namespace", "name", "version", "format"},
+		LookupKey:  "name",
 		Fields: []Field{
 			{Name: "namespace", Type: FString, Required: true, Help: "schema namespace (lowercase letters, digits, underscore)"},
 			{Name: "name", Type: FString, Required: true, Help: "schema name"},
@@ -200,6 +206,7 @@ var entitySpecs = []EntitySpec{
 		Collection: "organizations",
 		OrgScoped:  false,
 		KeyColumns: []string{"name", "active", "owner"},
+		LookupKey:  "name",
 		Fields: []Field{
 			{Name: "name", Type: FString, Required: true, Help: "organization name (must be unique)"},
 			{Name: "description", Type: FString, Help: "free-form description"},
@@ -227,6 +234,7 @@ var entitySpecs = []EntitySpec{
 		Collection: "invites",
 		OrgScoped:  true,
 		KeyColumns: []string{"email", "role", "expires_at"},
+		LookupKey:  "email",
 		Fields: []Field{
 			{Name: "email", Type: FString, Required: true, Help: "invitee email"},
 			{Name: "role", Type: FSelect, Values: []string{"admin", "member", "badge"}, Required: true, Help: "membership role to grant"},
@@ -245,6 +253,7 @@ var entitySpecs = []EntitySpec{
 		Collection: "nats_users",
 		OrgScoped:  true,
 		KeyColumns: []string{"nats_username", "account_id", "role_id", "active", "bearer_token"},
+		LookupKey:  "nats_username",
 		Fields: []Field{
 			{Name: "email", Type: FString, Required: true, Help: "auth email (required by the auth collection)"},
 			{Name: "password", Type: FString, Required: true, Help: "auth password (min 8 chars)"},
@@ -263,6 +272,7 @@ var entitySpecs = []EntitySpec{
 		Collection: "nats_roles",
 		OrgScoped:  true,
 		KeyColumns: []string{"name", "is_default", "max_subscriptions", "max_payload"},
+		LookupKey:  "name",
 		Fields: []Field{
 			{Name: "name", Type: FString, Required: true, Help: "role name (unique per org)"},
 			{Name: "description", Type: FString, Help: "free-form description"},
@@ -281,8 +291,9 @@ var entitySpecs = []EntitySpec{
 		Plural:     "nats-accounts",
 		Collection: "nats_accounts",
 		OrgScoped:  true,
-		Verbs:      []string{"ls", "update", "edit"},
+		Verbs:      []string{"ls", "get", "update", "edit"},
 		KeyColumns: []string{"name", "max_connections", "max_subscriptions", "max_payload"},
+		LookupKey:  "name",
 		Fields: []Field{
 			{Name: "name", Type: FString, Help: "account name"},
 			{Name: "description", Type: FString, Help: "free-form description"},
@@ -301,6 +312,7 @@ var entitySpecs = []EntitySpec{
 		Collection: "nats_account_imports",
 		OrgScoped:  true,
 		KeyColumns: []string{"name", "type", "subject", "local_subject"},
+		LookupKey:  "name",
 		Fields: []Field{
 			{Name: "account_id", Type: FID, Required: true, Help: "local nats_accounts id"},
 			{Name: "name", Type: FString, Required: true, Help: "import name"},
@@ -320,6 +332,7 @@ var entitySpecs = []EntitySpec{
 		Collection: "nats_account_exports",
 		OrgScoped:  true,
 		KeyColumns: []string{"name", "type", "subject", "token_req"},
+		LookupKey:  "name",
 		Fields: []Field{
 			{Name: "account_id", Type: FID, Required: true, Help: "local nats_accounts id"},
 			{Name: "name", Type: FString, Required: true, Help: "export name"},
@@ -343,6 +356,7 @@ var entitySpecs = []EntitySpec{
 		Collection: "nebula_networks",
 		OrgScoped:  true,
 		KeyColumns: []string{"name", "cidr_range", "active", "ca_id"},
+		LookupKey:  "name",
 		Fields: []Field{
 			{Name: "name", Type: FString, Required: true, Help: "network name"},
 			{Name: "description", Type: FString, Help: "free-form description"},
@@ -357,6 +371,7 @@ var entitySpecs = []EntitySpec{
 		Collection: "nebula_hosts",
 		OrgScoped:  true,
 		KeyColumns: []string{"hostname", "overlay_ip", "network_id", "is_lighthouse", "active"},
+		LookupKey:  "hostname",
 		Fields: []Field{
 			{Name: "email", Type: FString, Required: true, Help: "auth email (required by the auth collection)"},
 			{Name: "password", Type: FString, Required: true, Help: "auth password (min 8 chars)"},
@@ -377,8 +392,9 @@ var entitySpecs = []EntitySpec{
 		Plural:     "nebula-cas",
 		Collection: "nebula_ca",
 		OrgScoped:  true,
-		Verbs:      []string{"ls", "update", "edit"},
+		Verbs:      []string{"ls", "get", "update", "edit"},
 		KeyColumns: []string{"name", "curve", "validity_years", "expires_at"},
+		LookupKey:  "name",
 		Fields: []Field{
 			{Name: "name", Type: FString, Help: "CA name"},
 			{Name: "validity_years", Type: FInt, Help: "CA cert validity in years (operator-only)"},
@@ -400,7 +416,7 @@ func resolveOutput() string {
 	return "table"
 }
 
-// registerCRUD wires ls/create/update/delete/edit for a single entity.
+// registerCRUD wires ls/get/create/update/delete/edit for a single entity.
 func registerCRUD(spec EntitySpec) {
 	root := &cobra.Command{
 		Use:     spec.Name,
@@ -409,6 +425,9 @@ func registerCRUD(spec EntitySpec) {
 	}
 	if spec.hasVerb("ls") {
 		root.AddCommand(buildLsCmd(spec))
+	}
+	if spec.hasVerb("get") {
+		root.AddCommand(buildGetCmd(spec))
 	}
 	if spec.hasVerb("create") {
 		root.AddCommand(buildCreateCmd(spec))
@@ -437,7 +456,8 @@ func buildLsCmd(spec EntitySpec) *cobra.Command {
 			}
 			client := newPBClient(c)
 			sort, _ := cmd.Flags().GetString("sort")
-			opts := pb.ListOptions{Sort: sort}
+			fields, _ := cmd.Flags().GetString("fields")
+			opts := pb.ListOptions{Sort: sort, Fields: fields}
 			extraFilter, _ := cmd.Flags().GetString("filter")
 			opts.Filter = composeOrgFilter(spec, c.CurrentOrganization, extraFilter)
 			items, err := client.ListAll(spec.Collection, opts)
@@ -445,12 +465,104 @@ func buildLsCmd(spec EntitySpec) *cobra.Command {
 				return err
 			}
 			cols := append([]string{"id"}, spec.KeyColumns...)
+			if fields != "" {
+				cols = splitFields(fields)
+			}
 			return pb.PrintList(os.Stdout, items, cols, resolveOutput())
 		},
 	}
 	cmd.Flags().String("filter", "", "extra PocketBase filter expression to AND with the org filter")
 	cmd.Flags().String("sort", "", `PocketBase sort expression, e.g. "-updated" or "name"`)
+	cmd.Flags().String("fields", "", "comma-separated fields to return (server-side projection); table columns follow it")
 	return cmd
+}
+
+func buildGetCmd(spec EntitySpec) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:     idArgUse(spec, "get"),
+		Aliases: []string{"show"},
+		Short:   fmt.Sprintf("Get a single %s", spec.Name),
+		Args:    cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			c, err := ctx.Active(flagContext)
+			if err != nil {
+				return err
+			}
+			client := newPBClient(c)
+			id, err := resolveRecordID(client, spec, c.CurrentOrganization, args[0])
+			if err != nil {
+				return err
+			}
+			fields, _ := cmd.Flags().GetString("fields")
+			r, err := client.Get(spec.Collection, id, pb.GetOptions{Fields: fields})
+			if err != nil {
+				return err
+			}
+			return pb.PrintRecord(os.Stdout, r, resolveOutput())
+		},
+	}
+	cmd.Flags().String("fields", "", "comma-separated fields to return (server-side projection)")
+	return cmd
+}
+
+// idArgUse renders the Use string for verbs taking a positional record arg.
+func idArgUse(spec EntitySpec, verb string) string {
+	if spec.LookupKey != "" {
+		return fmt.Sprintf("%s <id|%s>", verb, spec.LookupKey)
+	}
+	return verb + " <id>"
+}
+
+// resolveRecordID resolves a positional <id|key> argument to a record id.
+// Id-shaped args are tried as ids first; anything else — or an id-shaped arg
+// that doesn't resolve — is matched exactly against the spec's LookupKey,
+// scoped to the current organization for org-scoped collections.
+func resolveRecordID(client *pb.Client, spec EntitySpec, orgID, arg string) (string, error) {
+	idShaped := pocketbaseIDRE.MatchString(arg)
+	if idShaped {
+		if _, err := client.Get(spec.Collection, arg, pb.GetOptions{Fields: "id"}); err == nil {
+			return arg, nil
+		} else if spec.LookupKey == "" {
+			return "", fmt.Errorf("%s id %q not accessible: %w", spec.Name, arg, err)
+		}
+	}
+	if spec.LookupKey == "" {
+		return "", fmt.Errorf("%s takes a 15-char PocketBase id, got %q", spec.Name, arg)
+	}
+	filter := composeOrgFilter(spec, orgID, fmt.Sprintf(`%s="%s"`, spec.LookupKey, escapePBString(arg)))
+	items, err := client.ListAll(spec.Collection, pb.ListOptions{Filter: filter, Fields: "id"})
+	if err != nil {
+		return "", err
+	}
+	switch len(items) {
+	case 0:
+		if idShaped {
+			return "", fmt.Errorf("no %s with id or %s %q", spec.Name, spec.LookupKey, arg)
+		}
+		return "", fmt.Errorf("no %s with %s %q", spec.Name, spec.LookupKey, arg)
+	case 1:
+		id, _ := items[0]["id"].(string)
+		return id, nil
+	default:
+		ids := make([]string, 0, len(items))
+		for _, it := range items {
+			if id, ok := it["id"].(string); ok {
+				ids = append(ids, id)
+			}
+		}
+		return "", fmt.Errorf("multiple %s match %s %q (%s); use the id", spec.Plural, spec.LookupKey, arg, strings.Join(ids, ", "))
+	}
+}
+
+// splitFields turns a --fields value into table column names.
+func splitFields(s string) []string {
+	var out []string
+	for _, p := range strings.Split(s, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 func buildCreateCmd(spec EntitySpec) *cobra.Command {
@@ -521,8 +633,8 @@ func buildCreateCmd(spec EntitySpec) *cobra.Command {
 
 func buildUpdateCmd(spec EntitySpec) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "update <id>",
-		Short: fmt.Sprintf("Update a %s by id", spec.Name),
+		Use:   idArgUse(spec, "update"),
+		Short: fmt.Sprintf("Update a %s", spec.Name),
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, err := ctx.Active(flagContext)
@@ -537,7 +649,11 @@ func buildUpdateCmd(spec EntitySpec) *cobra.Command {
 				return errors.New("no fields to update; pass at least one flag")
 			}
 			client := newPBClient(c)
-			r, err := client.Update(spec.Collection, args[0], data)
+			id, err := resolveRecordID(client, spec, c.CurrentOrganization, args[0])
+			if err != nil {
+				return err
+			}
+			r, err := client.Update(spec.Collection, id, data)
 			if err != nil {
 				return err
 			}
@@ -550,29 +666,37 @@ func buildUpdateCmd(spec EntitySpec) *cobra.Command {
 
 func buildDeleteCmd(spec EntitySpec) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:     "delete <id>",
+		Use:     idArgUse(spec, "delete"),
 		Aliases: []string{"rm"},
-		Short:   fmt.Sprintf("Delete a %s by id", spec.Name),
+		Short:   fmt.Sprintf("Delete a %s", spec.Name),
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			c, err := ctx.Active(flagContext)
 			if err != nil {
 				return err
 			}
+			client := newPBClient(c)
+			id, err := resolveRecordID(client, spec, c.CurrentOrganization, args[0])
+			if err != nil {
+				return err
+			}
+			label := args[0]
+			if id != args[0] {
+				label = fmt.Sprintf("%s (%s)", args[0], id)
+			}
 			yes, _ := cmd.Flags().GetBool("yes")
 			if !yes {
-				fmt.Fprintf(os.Stderr, "delete %s %s? [y/N] ", spec.Name, args[0])
+				fmt.Fprintf(os.Stderr, "delete %s %s? [y/N] ", spec.Name, label)
 				r := bufio.NewReader(os.Stdin)
 				line, _ := r.ReadString('\n')
 				if !strings.HasPrefix(strings.ToLower(strings.TrimSpace(line)), "y") {
 					return errors.New("aborted")
 				}
 			}
-			client := newPBClient(c)
-			if err := client.Delete(spec.Collection, args[0]); err != nil {
+			if err := client.Delete(spec.Collection, id); err != nil {
 				return err
 			}
-			fmt.Printf("deleted %s %s\n", spec.Name, args[0])
+			fmt.Printf("deleted %s %s\n", spec.Name, label)
 			return nil
 		},
 	}
@@ -582,7 +706,7 @@ func buildDeleteCmd(spec EntitySpec) *cobra.Command {
 
 func buildEditCmd(spec EntitySpec) *cobra.Command {
 	return &cobra.Command{
-		Use:   "edit <id>",
+		Use:   idArgUse(spec, "edit"),
 		Short: fmt.Sprintf("Open a %s in $EDITOR (YAML) and apply on save", spec.Name),
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -591,7 +715,11 @@ func buildEditCmd(spec EntitySpec) *cobra.Command {
 				return err
 			}
 			client := newPBClient(c)
-			cur, err := client.Get(spec.Collection, args[0])
+			id, err := resolveRecordID(client, spec, c.CurrentOrganization, args[0])
+			if err != nil {
+				return err
+			}
+			cur, err := client.Get(spec.Collection, id)
 			if err != nil {
 				return err
 			}
@@ -620,7 +748,7 @@ func buildEditCmd(spec EntitySpec) *cobra.Command {
 			}
 			// Drop id from the patch body if present; the URL carries it.
 			delete(updated, "id")
-			r, err := client.Update(spec.Collection, args[0], updated)
+			r, err := client.Update(spec.Collection, id, updated)
 			if err != nil {
 				return err
 			}
