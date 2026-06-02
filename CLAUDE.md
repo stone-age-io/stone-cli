@@ -56,7 +56,7 @@ Field types `FID`/`FIDs` accept 15-char PocketBase relation ids only. `FJSON` fi
 
 ### Pull / apply (GitOps)
 `cmd/sync.go`:
-- `stone pull` writes one YAML file per record into `<workspace>/<collection>/<code-or-id>.yaml`. Org-scoped collections are filtered by `current_organization`. Server-only fields (`collectionId`, `collectionName`, `created`, `updated`, `expand`) are stripped on read (see `pb.ServerOnlyFields` / `pb.Strip`).
+- `stone pull` writes one YAML file per record into `<workspace>/<collection>/<key>.yaml`, where `<key>` is the spec's `LookupKey` value (message-schemas use `ns__name__version`; fallback `name`, then id). Filename collisions get a `-<id>` suffix; records are pulled sorted by id so the suffix lands on the same record across pulls. Filenames are cosmetic — apply identifies records solely by the `id` field inside the file. Org-scoped collections are filtered by `current_organization`. Server-only fields (`collectionId`, `collectionName`, `created`, `updated`, `expand`) are stripped on read (see `pb.ServerOnlyFields` / `pb.Strip`).
 - `stone apply` walks the workspace, infers each record's collection from its parent directory, batches up to **50 ops per request** (`batchSize` constant), and POSTs through PocketBase's transactional `/api/batch`. Records with `id` are PATCHed; records without are POSTed and the server-assigned id is written back into the file. Apply is idempotent. It deliberately does **not** delete records absent from the workspace.
 - The list of collections pull/apply knows about is derived from `entitySpecs` (it reuses `OrgScoped` to inject `organization` on create). Adding an `EntitySpec` automatically extends both pull and apply.
 

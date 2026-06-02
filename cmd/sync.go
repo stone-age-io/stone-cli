@@ -91,7 +91,9 @@ func runPull(cmd *cobra.Command, args []string) error {
 			fmt.Fprintf(os.Stderr, "skip %s (org-scoped; no current organization set)\n", spec.Collection)
 			continue
 		}
-		opts := pb.ListOptions{}
+		// Sort by id so filename collision suffixes land on the same
+		// records across pulls (stable workspace diffs).
+		opts := pb.ListOptions{Sort: "id"}
 		if spec.OrgScoped {
 			opts.Filter = fmt.Sprintf(`organization="%s"`, c.CurrentOrganization)
 		}
@@ -104,9 +106,17 @@ func runPull(cmd *cobra.Command, args []string) error {
 			return err
 		}
 		count := 0
+		used := map[string]bool{}
 		for _, r := range items {
 			pb.Strip(r)
-			fname := recordFilename(r) + ".yaml"
+			base := recordFilename(spec, r)
+			if used[base] {
+				if id, _ := r["id"].(string); id != "" {
+					base = base + "-" + id
+				}
+			}
+			used[base] = true
+			fname := base + ".yaml"
 			path := filepath.Join(dir, fname)
 			if err := pb.MarshalFile(path, r); err != nil {
 				return fmt.Errorf("write %s: %w", path, err)
@@ -129,16 +139,19 @@ func runPull(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func recordFilename(r pb.Record) string {
-	if code, ok := r["code"].(string); ok && code != "" {
-		return sanitizeFilename(code)
-	}
-	// message_schemas have a composite identity.
+func recordFilename(spec EntitySpec, r pb.Record) string {
+	// message_schemas have a composite identity; their LookupKey ("name")
+	// repeats across versions, so the composite must win.
 	if ns, _ := r["namespace"].(string); ns != "" {
 		if nm, _ := r["name"].(string); nm != "" {
 			if v, _ := r["version"].(string); v != "" {
 				return sanitizeFilename(ns + "__" + nm + "__" + v)
 			}
+		}
+	}
+	if spec.LookupKey != "" {
+		if k, _ := r[spec.LookupKey].(string); k != "" {
+			return sanitizeFilename(k)
 		}
 	}
 	if name, ok := r["name"].(string); ok && name != "" {
