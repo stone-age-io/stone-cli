@@ -133,6 +133,7 @@ var entitySpecs = []EntitySpec{
 			{Name: "type", Type: FID, Help: "thing_types id"},
 			{Name: "location", Type: FID, Help: "locations id"},
 			{Name: "metadata", Type: FJSON, Help: "arbitrary JSON metadata"},
+			{Name: "floorplan_position", Type: FJSON, Help: "floorplan placement as JSON (e.g. {\"x\":12,\"y\":34})"},
 			{Name: "nats_user", Type: FID, Help: "nats_users id"},
 			{Name: "nebula_host", Type: FID, Help: "nebula_hosts id"},
 		},
