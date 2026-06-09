@@ -90,6 +90,60 @@ var jsStreamInfoCmd = &cobra.Command{
 	},
 }
 
+var jsStreamViewCmd = &cobra.Command{
+	Use:     "view <name>",
+	Aliases: []string{"messages", "msgs", "tail"},
+	Short:   "Show the most recent messages stored in a stream",
+	Long: `Show the most recent messages stored in a stream, newest first.
+
+Walks backward from the stream's last sequence via direct message get,
+tolerating gaps from deleted or purged sequences. Use --last/-n to set how
+many to fetch. For richer browsing/filtering, use the 'nats' CLI.`,
+	Args: cobra.ExactArgs(1),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		n, _ := cmd.Flags().GetInt("last")
+		if n < 1 {
+			n = 10
+		}
+		js, cleanup, err := openJS()
+		if err != nil {
+			return err
+		}
+		defer cleanup()
+		ctx2, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		stream, err := js.Stream(ctx2, args[0])
+		if err != nil {
+			return err
+		}
+		info, err := stream.Info(ctx2)
+		if err != nil {
+			return err
+		}
+		st := info.State
+		var rows []pb.Record
+		if st.Msgs > 0 && st.LastSeq > 0 {
+			seq := st.LastSeq
+			// Slack so deleted/purged sequences don't end the walk early.
+			attempts, maxAttempts := 0, n*4
+			for seq >= st.FirstSeq && len(rows) < n && attempts < maxAttempts {
+				attempts++
+				msg, err := stream.GetMsg(ctx2, seq)
+				if err != nil {
+					if errors.Is(err, jetstream.ErrMsgNotFound) {
+						seq--
+						continue
+					}
+					return err
+				}
+				rows = append(rows, msgRecord(msg, resolveOutput()))
+				seq--
+			}
+		}
+		return pb.PrintList(os.Stdout, rows, []string{"seq", "time", "subject", "data"}, resolveOutput())
+	},
+}
+
 var jsStreamCreateCmd = &cobra.Command{
 	Use:   "create <name>",
 	Short: "Create a stream",
@@ -481,6 +535,25 @@ func structToRecord(v any) (pb.Record, error) {
 	return r, nil
 }
 
+// msgRecord renders a stored stream message. In table mode the payload is
+// collapsed to a single truncated line so it doesn't break the table; json/yaml
+// output keeps it raw.
+func msgRecord(m *jetstream.RawStreamMsg, output string) pb.Record {
+	data := string(m.Data)
+	if output == "table" {
+		data = strings.ReplaceAll(data, "\n", " ")
+		if len(data) > 120 {
+			data = data[:117] + "..."
+		}
+	}
+	return pb.Record{
+		"seq":     m.Sequence,
+		"time":    m.Time.Format(time.RFC3339),
+		"subject": m.Subject,
+		"data":    data,
+	}
+}
+
 func confirm(format string, args ...any) bool {
 	fmt.Fprintf(os.Stderr, format, args...)
 	var line string
@@ -498,6 +571,7 @@ func init() {
 	jsStreamCreateCmd.Flags().String("storage", "file", "storage: file|memory")
 	jsStreamCreateCmd.Flags().Int("replicas", 1, "number of replicas")
 	jsStreamCreateCmd.Flags().String("config", "", "YAML/JSON jetstream.StreamConfig (overrides flags)")
+	jsStreamViewCmd.Flags().IntP("last", "n", 10, "number of most recent messages to show")
 	jsStreamPurgeCmd.Flags().BoolP("yes", "y", false, "skip confirmation")
 	jsStreamDeleteCmd.Flags().BoolP("yes", "y", false, "skip confirmation")
 
@@ -511,7 +585,7 @@ func init() {
 	jsBucketCreateCmd.Flags().String("config", "", "YAML/JSON jetstream.KeyValueConfig (overrides flags)")
 	jsBucketDeleteCmd.Flags().BoolP("yes", "y", false, "skip confirmation")
 
-	jsStreamCmd.AddCommand(jsStreamLsCmd, jsStreamInfoCmd, jsStreamCreateCmd, jsStreamPurgeCmd, jsStreamDeleteCmd)
+	jsStreamCmd.AddCommand(jsStreamLsCmd, jsStreamInfoCmd, jsStreamViewCmd, jsStreamCreateCmd, jsStreamPurgeCmd, jsStreamDeleteCmd)
 	jsBucketCmd.AddCommand(jsBucketLsCmd, jsBucketInfoCmd, jsBucketCreateCmd, jsBucketDeleteCmd)
 	// jsBucketCmd is attached to kvCmd in cmd/kv.go init().
 	jsCmd.AddCommand(jsStreamCmd)

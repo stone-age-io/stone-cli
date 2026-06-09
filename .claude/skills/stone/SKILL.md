@@ -172,6 +172,7 @@ stone kv bucket create twins --history 5 --ttl 720h
 stone kv bucket delete twins
 
 stone js stream ls
+stone js stream view twins --last 20          # most recent N messages (newest first)
 stone js stream create twins --subject 'twins.>' --max-age 24h --storage file
 
 stone nats sync-context        # re-issue per-org creds after key rotation

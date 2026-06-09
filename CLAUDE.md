@@ -73,7 +73,7 @@ The matching shape lives in `natsCtxFile` and must stay compatible with both nat
 
 ### NATS / JetStream commands
 - `cmd/nats.go` — `pub` / `sub` / `request`. `pub --js` routes through JetStream and prints the ack.
-- `cmd/js.go` — admin for streams and KV buckets (lifecycle only).
+- `cmd/js.go` — stream/KV-bucket lifecycle admin, plus `js stream view` to read the last N stored messages (walks backward from `LastSeq` via `Stream.GetMsg`, tolerating purged-sequence gaps).
 - `cmd/kv.go` — data-plane KV (`get`/`put`/`del`/`watch`/`ls keys`).
 - Consumer management is intentionally absent — the `nats` CLI handles it better.
 

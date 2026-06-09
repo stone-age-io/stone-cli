@@ -192,6 +192,7 @@ passed.
 ```sh
 ./stone js stream ls
 ./stone js stream info <name>
+./stone js stream view <name> --last 20                  # most recent N messages (newest first)
 ./stone js stream create twins --subject "twins.>" --max-age 24h --storage file
 ./stone js stream create twins --config stream.yaml      # advanced config
 ./stone js stream purge <name>
