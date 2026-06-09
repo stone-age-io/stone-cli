@@ -40,7 +40,7 @@ A context bundles: `url`, `auth` (PB token + collection + email), `current_organ
 Context names must match `^[A-Za-z0-9_-]{1,50}$` — they're used as filesystem paths.
 
 ### Entity CRUD is data-driven
-`cmd/entity.go` is the heart of typed CRUD. It declares 16 `EntitySpec` values (thing, location, thing-type, thing-type-operation, message-schema, organization, membership, invite, nats-user, nats-role, nats-import, nats-export, nats-account, nebula-network, nebula-host, nebula-ca). Each spec lists:
+`cmd/entity.go` is the heart of typed CRUD. It declares 18 `EntitySpec` values (thing, location, location-type, thing-type, thing-type-operation, message-schema, organization, membership, invite, nats-user, nats-role, nats-import, nats-export, nats-account, nebula-network, nebula-host, nebula-ca, leaf-node). Each spec lists:
 - `Collection` — PocketBase collection name
 - `OrgScoped` — auto-inject `organization` on create / filter by it on `ls`
 - `KeyColumns` — table columns shown by `ls`

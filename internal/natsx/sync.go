@@ -39,13 +39,13 @@ type natsCtxFile struct {
 
 // SyncOptions configures a nats-cli context write.
 type SyncOptions struct {
-	StoneContext string  // stone context name (for namespacing)
+	StoneContext string // stone context name (for namespacing)
 	OrgID        string
 	OrgName      string
 	NATSURL      string
-	NATSUser     pb.Record   // the nats_users record (must have creds_file)
+	NATSUser     pb.Record // the nats_users record (must have creds_file)
 	Description  string
-	SetSelected  bool        // also update ~/.config/nats/context.txt
+	SetSelected  bool // also update ~/.config/nats/context.txt
 }
 
 // SyncResult reports where files landed and what label to use.

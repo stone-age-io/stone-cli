@@ -236,12 +236,12 @@ var jsBucketInfoCmd = &cobra.Command{
 			return err
 		}
 		rec := pb.Record{
-			"name":         st.Bucket(),
-			"values":       st.Values(),
-			"bytes":        st.Bytes(),
-			"history":      st.History(),
-			"ttl":          st.TTL().String(),
-			"backing":      st.BackingStore(),
+			"name":          st.Bucket(),
+			"values":        st.Values(),
+			"bytes":         st.Bytes(),
+			"history":       st.History(),
+			"ttl":           st.TTL().String(),
+			"backing":       st.BackingStore(),
 			"is_compressed": st.IsCompressed(),
 		}
 		return pb.PrintRecord(os.Stdout, rec, resolveOutput())

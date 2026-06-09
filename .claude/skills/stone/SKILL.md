@@ -62,7 +62,8 @@ Verbs `ls / get / create / update / delete / edit` are synthesized from a single
 
 | Entity | Org-scoped | Verbs |
 |---|---|---|
-| `thing`, `location`, `thing-type`, `thing-type-operation`, `message-schema` | yes | full |
+| `thing`, `location`, `location-type`, `thing-type`, `thing-type-operation`, `message-schema` | yes | full |
+| `leaf-node` | yes | full |
 | `invite` | yes | full |
 | `nats-user`, `nats-role`, `nats-import`, `nats-export` | yes | full |
 | `nebula-network`, `nebula-host` | yes | full |
@@ -76,7 +77,7 @@ Verbs `ls / get / create / update / delete / edit` are synthesized from a single
 
 | Entities | Lookup key |
 |---|---|
-| `thing`, `location`, `thing-type` | `code` |
+| `thing`, `location`, `location-type`, `thing-type`, `leaf-node` | `code` |
 | `nebula-host` | `hostname` |
 | `nats-user` | `nats_username` |
 | `invite` | `email` |
@@ -101,7 +102,7 @@ stone thing ls --fields code,name -o json
   - stdin: `--metadata -`
 - **Selects/multiselects** (e.g. `--capabilities publish,subscribe`) are validated against a whitelist; the CLI prints the choices in `--help`.
 
-### Auth collections (`thing`, `nats-user`, `nebula-host`)
+### Auth collections (`thing`, `nats-user`, `nebula-host`, `leaf-node`)
 
 These collections are PocketBase auth records. The CLI handles two PB quirks for you:
 

@@ -138,7 +138,8 @@ For diff/status/history, put the workspace in `git`.
 
 Full CRUD (`ls / get / create / update / delete / edit`):
 
-- Domain: `thing`, `location`, `thing-type`, `thing-type-operation`, `message-schema`
+- Domain: `thing`, `location`, `location-type`, `thing-type`, `thing-type-operation`, `message-schema`
+- Edge: `leaf-node`
 - Admin: `organization`, `membership`, `invite`
 - NATS: `nats-user`, `nats-role`, `nats-import`, `nats-export`
 - Nebula: `nebula-network`, `nebula-host`
@@ -152,7 +153,7 @@ Limited CRUD (`ls / get / update / edit` only — auto-provisioned by the platfo
 ### Lookup by id or natural key
 
 `get`, `update`, `delete`, and `edit` accept either a 15-char PocketBase id or
-the entity's natural key: `code` (`thing`, `location`, `thing-type`),
+the entity's natural key: `code` (`thing`, `location`, `location-type`, `thing-type`, `leaf-node`),
 `hostname` (`nebula-host`), `nats_username` (`nats-user`), `email` (`invite`),
 and `name` for everything else. `membership` is id-only. Key lookups are
 exact-match and scoped to the current organization; zero or multiple matches
@@ -169,7 +170,7 @@ fail with the candidate ids listed.
 
 ### Auth-collection conveniences
 
-`thing`, `nats-user`, and `nebula-host` are PocketBase auth collections. On create
+`thing`, `nats-user`, `nebula-host`, and `leaf-node` are PocketBase auth collections. On create
 and on password change, PB requires `passwordConfirm` to match `password` and
 `emailVisibility` to be set explicitly. `stone` fills both in for you when a
 non-empty `password` is present (typed CRUD, `apply`, and `edit` all benefit).

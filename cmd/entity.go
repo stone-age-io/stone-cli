@@ -45,12 +45,12 @@ const (
 
 // Field declares one flag for an entity.
 type Field struct {
-	Name     string    // JSON key on the PB record
-	Flag     string    // kebab-case CLI flag (default: Name with _ → -)
+	Name     string // JSON key on the PB record
+	Flag     string // kebab-case CLI flag (default: Name with _ → -)
 	Type     FieldType
-	Required bool      // required on create
+	Required bool // required on create
 	Help     string
-	Values   []string  // for select/multiselect
+	Values   []string // for select/multiselect
 }
 
 // EntitySpec defines a CRUD-able entity.
@@ -115,7 +115,8 @@ func (f Field) flagName() string {
 	return strings.ReplaceAll(f.Name, "_", "-")
 }
 
-// entitySpecs holds the 8 first-class entity definitions.
+// entitySpecs holds the first-class entity definitions. registerCRUD turns
+// each into a command tree; pull/apply enumerate the same list.
 var entitySpecs = []EntitySpec{
 	{
 		Name:       "thing",
@@ -152,6 +153,19 @@ var entitySpecs = []EntitySpec{
 			{Name: "type", Type: FID, Help: "location_types id"},
 			{Name: "parent", Type: FID, Help: "parent locations id (for hierarchy)"},
 			{Name: "metadata", Type: FJSON, Help: "arbitrary JSON metadata"},
+		},
+	},
+	{
+		Name:       "location-type",
+		Plural:     "location-types",
+		Collection: "location_types",
+		OrgScoped:  true,
+		KeyColumns: []string{"code", "name", "description"},
+		LookupKey:  "code",
+		Fields: []Field{
+			{Name: "name", Type: FString, Help: "display name"},
+			{Name: "code", Type: FString, Help: "stable short code"},
+			{Name: "description", Type: FString, Help: "free-form description"},
 		},
 	},
 	{
@@ -401,6 +415,35 @@ var entitySpecs = []EntitySpec{
 			{Name: "validity_years", Type: FInt, Help: "CA cert validity in years (operator-only)"},
 			{Name: "curve", Type: FString, Help: "elliptic curve, e.g. P256 (operator-only)"},
 			{Name: "rotate_keys", Type: FBool, Help: "set true to trigger CA rotation"},
+		},
+	},
+
+	// ---- Leaf nodes ------------------------------------------------------
+	// A Leaf Node models a customer site running its own local NATS server.
+	// It's an auth collection ("a special Thing") that ties together a NATS
+	// identity, an optional Nebula host, and an allowlist of collections the
+	// site's leaf-sync agent mirrors into local KV. See platform-docs
+	// leaf-nodes.md.
+
+	{
+		Name:       "leaf-node",
+		Plural:     "leaf-nodes",
+		Collection: "leaf_nodes",
+		OrgScoped:  true,
+		KeyColumns: []string{"code", "name", "domain", "nats_user", "location"},
+		LookupKey:  "code",
+		Fields: []Field{
+			{Name: "email", Type: FString, Required: true, Help: "leaf node's auth email (required by the leaf_nodes auth collection)"},
+			{Name: "password", Type: FString, Required: true, Help: "leaf node's auth password (min 8 chars)"},
+			{Name: "name", Type: FString, Help: "display name"},
+			{Name: "code", Type: FString, Help: "site slug; derives the NATS username and JetStream domain (immutable after creation)"},
+			{Name: "description", Type: FString, Help: "free-form description"},
+			{Name: "domain", Type: FString, Help: "local JetStream domain, e.g. edge-<code> (usually derived from code)"},
+			{Name: "synced_collections", Type: FMSelect, Values: []string{"things", "locations", "thing_types", "location_types", "thing_type_operations", "message_schemas"}, Help: "collections this site mirrors; subset of the sync allowlist (comma-separated)"},
+			{Name: "location", Type: FID, Help: "locations id (optional site context)"},
+			{Name: "metadata", Type: FJSON, Help: "arbitrary JSON metadata"},
+			{Name: "nats_user", Type: FID, Help: "nats_users id (auto-provisioned by a server-side hook on create)"},
+			{Name: "nebula_host", Type: FID, Help: "nebula_hosts id (optional overlay-mesh membership)"},
 		},
 	},
 }
@@ -955,4 +998,3 @@ func init() {
 		registerCRUD(s)
 	}
 }
-

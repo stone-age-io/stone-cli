@@ -49,6 +49,7 @@ Verbs `ls / get / create / update / delete / edit` are derived from a single dec
 |---|---|---|---|---|
 | `thing` | `things` | yes | `code` | full |
 | `location` | `locations` | yes | `code` | full |
+| `location-type` | `location_types` | yes | `code` | full |
 | `thing-type` | `thing_types` | yes | `code` | full |
 | `thing-type-operation` | `thing_type_operations` | yes | `name` | full |
 | `message-schema` | `message_schemas` | yes | `name` | full |
@@ -61,6 +62,7 @@ Verbs `ls / get / create / update / delete / edit` are derived from a single dec
 | `nats-export` | `nats_account_exports` | yes | `name` | full |
 | `nebula-network` | `nebula_networks` | yes | `name` | full |
 | `nebula-host` | `nebula_hosts` | yes | `hostname` | full |
+| `leaf-node` | `leaf_nodes` | yes | `code` | full |
 | `nats-account` | `nats_accounts` | yes | `name` | `ls / get / update / edit` |
 | `nebula-ca` | `nebula_ca` | yes | `name` | `ls / get / update / edit` |
 
@@ -85,7 +87,7 @@ Relation flags deliberately have no name-to-id resolver: discover ids via `stone
 
 ### Auth-collection ergonomics
 
-`thing`, `nats-user`, and `nebula-host` are PocketBase auth collections. The CLI smooths over two PB requirements so callers don't have to think about them:
+`thing`, `nats-user`, `nebula-host`, and `leaf-node` are PocketBase auth collections. The CLI smooths over two PB requirements so callers don't have to think about them:
 
 - When a non-empty `password` is sent on create or update, `passwordConfirm` is mirrored to match, and `emailVisibility` defaults to `true` if unset. This applies to typed CRUD, `apply`, and `edit`.
 - On `create`, pass `--random-password` instead of `--password` to have the CLI generate a 32-char URL-safe password (`crypto/rand`, base64). The generated value is printed once to **stderr** so stdout stays clean for parsers. `--password` and `--random-password` are mutually exclusive; exactly one is required.
