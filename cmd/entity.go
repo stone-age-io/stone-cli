@@ -123,7 +123,7 @@ var entitySpecs = []EntitySpec{
 		Plural:     "things",
 		Collection: "things",
 		OrgScoped:  true,
-		KeyColumns: []string{"code", "name", "type", "location"},
+		KeyColumns: []string{"code", "name", "type", "location", "active"},
 		LookupKey:  "code",
 		Fields: []Field{
 			{Name: "email", Type: FString, Required: true, Help: "thing's auth email (required by the things auth collection)"},
@@ -137,6 +137,10 @@ var entitySpecs = []EntitySpec{
 			{Name: "floorplan_position", Type: FJSON, Help: "floorplan placement as JSON (e.g. {\"x\":12,\"y\":34})"},
 			{Name: "nats_user", Type: FID, Help: "nats_users id"},
 			{Name: "nebula_host", Type: FID, Help: "nebula_hosts id"},
+			// Not a status label -- setting false signs the device out, blocks
+			// it signing back in, and revokes its NATS credential. See
+			// deactivationWarning in creds.go. Owner/admin only.
+			{Name: "active", Type: FBool, Help: "in service; false DECOMMISSIONS: signs the device out and revokes its NATS credential (owner/admin)"},
 		},
 	},
 	{
@@ -183,6 +187,7 @@ var entitySpecs = []EntitySpec{
 			{Name: "capabilities", Type: FMSelect, Values: []string{"publish", "subscribe", "request", "reply"}, Help: "NATS capabilities this type uses"},
 			{Name: "subject_prefix", Type: FString, Help: "subject prefix template"},
 			{Name: "operations", Type: FIDs, Help: "thing_type_operations ids (comma-separated or repeat flag)"},
+			{Name: "nats_role", Type: FID, Help: "nats_roles id: turns this type's operations into runtime NATS permissions"},
 		},
 	},
 	{
@@ -228,6 +233,11 @@ var entitySpecs = []EntitySpec{
 			{Name: "description", Type: FString, Help: "free-form description"},
 			{Name: "active", Type: FBool, Help: "whether the organization is active"},
 			{Name: "owner", Type: FID, Required: true, Help: "owning users id"},
+			// Flipping this provisions a stream export of the managed subject
+			// subtree from the org's NATS account into the operator hub account,
+			// remapped to carry the org id. Operator-only, like the rest of this
+			// collection -- organizations.updateRule admits no tenant role.
+			{Name: "managed", Type: FBool, Help: "MSP-managed: provisions the helpdesk stream export to the operator hub (operator-only)"},
 		},
 	},
 	{
@@ -278,7 +288,20 @@ var entitySpecs = []EntitySpec{
 			{Name: "account_id", Type: FID, Required: true, Help: "nats_accounts id"},
 			{Name: "role_id", Type: FID, Required: true, Help: "nats_roles id"},
 			{Name: "bearer_token", Type: FBool, Help: "issue as bearer-token user (no signing)"},
-			{Name: "active", Type: FBool, Help: "whether the user is active"},
+			// `active` is deliberately NOT writable here.
+			//
+			// pb-nats reads it into its model (internal/types/converters.go) and
+			// then consults it nowhere in JWT generation or sync -- clearing it
+			// leaves the signed credential valid and the client publishing. Only
+			// `revoke` disconnects anyone, by adding the public key to the
+			// account's revocation list and re-signing the account JWT
+			// (internal/sync/manager.go, revokeUser). pb-nats sets active=false
+			// itself as part of that, so it stays a readable status column.
+			//
+			// The console removed its equivalent checkbox for the same reason. A
+			// flag that turns a badge red while the device keeps publishing is
+			// worse than no flag, because someone will trust it during an incident.
+			{Name: "revoke", Type: FBool, Help: "set true to REVOKE this credential: NATS rejects it immediately and permanently (use --regenerate to re-issue)"},
 			{Name: "jwt_expires_at", Type: FString, Help: `credential expiry, RFC 3339 (pass "" to clear = never expires)`},
 			{Name: "publish_permissions", Type: FJSON, Help: "per-user publish allow rules (JSON array of subjects; @file or - accepted)"},
 			{Name: "subscribe_permissions", Type: FJSON, Help: "per-user subscribe allow rules (JSON array of subjects)"},
@@ -327,7 +350,12 @@ var entitySpecs = []EntitySpec{
 			{Name: "max_payload", Type: FInt, Help: "max message payload bytes (operator-only)"},
 			{Name: "max_jetstream_disk_storage", Type: FInt, Help: "JS disk quota (operator-only)"},
 			{Name: "max_jetstream_memory_storage", Type: FInt, Help: "JS memory quota (operator-only)"},
-			{Name: "rotate_keys", Type: FBool, Help: "set true to trigger key rotation"},
+			// The key triggers (rotate_keys / add_signing_key / remove_signing_key)
+			// are NOT flags here. nats_accounts.updateRule is operator-only --
+			// the record mixes tenant-triggerable fields with the account limits
+			// and the signed JWT -- so an owner/admin PATCH of any field on this
+			// collection 404s. The three legitimate key operations live behind
+			// `stone nats account-keys` (POST /api/org/nats-account/keys).
 		},
 	},
 	{
@@ -423,7 +451,11 @@ var entitySpecs = []EntitySpec{
 			{Name: "name", Type: FString, Help: "CA name"},
 			{Name: "validity_years", Type: FInt, Help: "CA cert validity in years (operator-only)"},
 			{Name: "curve", Type: FString, Help: "elliptic curve, e.g. P256 (operator-only)"},
-			{Name: "rotate_keys", Type: FBool, Help: "set true to trigger CA rotation"},
+			// There is no `rotate_keys` here on purpose: nebula_ca has no such
+			// field, in schema.json or in pb-nebula. The flag used to exist and
+			// did nothing at all -- PocketBase silently drops writes to fields a
+			// collection does not have, so it reported success every time.
+			// Rolling a CA is a platform-operator operation, not a tenant one.
 		},
 	},
 
@@ -439,7 +471,7 @@ var entitySpecs = []EntitySpec{
 		Plural:     "leaf-nodes",
 		Collection: "leaf_nodes",
 		OrgScoped:  true,
-		KeyColumns: []string{"code", "name", "domain", "nats_user", "location"},
+		KeyColumns: []string{"code", "name", "domain", "nats_user", "location", "active"},
 		LookupKey:  "code",
 		Fields: []Field{
 			{Name: "email", Type: FString, Required: true, Help: "leaf node's auth email (required by the leaf_nodes auth collection)"},
@@ -453,6 +485,9 @@ var entitySpecs = []EntitySpec{
 			{Name: "metadata", Type: FJSON, Help: "arbitrary JSON metadata"},
 			{Name: "nats_user", Type: FID, Help: "nats_users id (auto-provisioned by a server-side hook on create)"},
 			{Name: "nebula_host", Type: FID, Help: "nebula_hosts id (optional overlay-mesh membership)"},
+			// Same semantics as things.active: leaf-sync stops authenticating,
+			// its existing session dies, and the site's NATS credential is revoked.
+			{Name: "active", Type: FBool, Help: "in service; false DECOMMISSIONS: stops leaf-sync and revokes the site's NATS credential (owner/admin)"},
 		},
 	},
 }

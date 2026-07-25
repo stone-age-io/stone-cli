@@ -54,6 +54,48 @@ Context names must match `^[A-Za-z0-9_-]{1,50}$` — they're used as filesystem 
 
 Field types `FID`/`FIDs` accept 15-char PocketBase relation ids only. `FJSON` fields accept inline JSON, `@<path>`, or `-` (stdin).
 
+### Fields the specs deliberately omit
+
+`cmd/entity.go` is hand-maintained, not generated from the platform's
+`schema.json`, so it drifts silently. When adding fields, these omissions are
+intentional — do not "fix" them:
+
+- **`organization`** — injected by `OrgScoped`, never a flag.
+- **Server-generated material** — `public_key`, `private_key`, `seed`, `jwt`,
+  `creds_file`, `certificate`, `config_yaml`, `signing_*`, `revocations`,
+  `expires_at`. Readable via `get`; writing them is meaningless.
+- **`nats-user.active`** — pb-nats reads it into its model
+  (`internal/types/converters.go`) and consults it **nowhere** in JWT
+  generation. Clearing it recolours a badge while the client keeps publishing;
+  only `revoke` disconnects anyone. It stays a `KeyColumn` (pb-nats sets it when
+  revoking) but must not become a writable flag. The console removed its
+  equivalent checkbox for the same reason.
+- **`nebula-ca.rotate_keys`** — no such field exists, in `schema.json` or in
+  pb-nebula. It was a flag once and did nothing: PocketBase silently drops
+  writes to fields a collection doesn't have, so it reported success every time.
+- **`nats-account.rotate_keys` / `add_signing_key` / `remove_signing_key`** —
+  the fields exist, but `nats_accounts.updateRule` is operator-only, so a tenant
+  PATCH 404s. They live behind `stone nats account-keys` instead.
+- **File fields** (`locations.floorplan`, `organizations.logo`) — no multipart
+  upload path in the client.
+
+Conversely, `things.active` and `leaf_nodes.active` **are** writable flags, and
+they are not labels: the platform's `hooks/active_flag.go` treats the flip as a
+decommission (refreshes `tokenKey` to kill live sessions, sets `revoke` on the
+linked NATS identity). Help text must say so.
+
+To re-check drift, diff the specs against the platform's `schema.json` — the
+platform repo is normally at `../platform`.
+
+### Custom platform routes
+
+`internal/pb/client.go` has `CallRoute` for the platform's non-collection
+endpoints, and `cmd/creds.go` wraps the two that exist:
+`POST /api/me/nats-creds/rotate` and `POST /api/org/nats-account/keys`. Both
+exist server-side because an API rule cannot express a single-field allowlist.
+Neither takes a record id — the target is derived from the caller's identity or
+active organization — so don't add one.
+
 ### Pull / apply (GitOps)
 `cmd/sync.go`:
 - `stone pull` writes one YAML file per record into `<workspace>/<collection>/<key>.yaml`, where `<key>` is the spec's `LookupKey` value (message-schemas use `ns__name__version`; fallback `name`, then id). Filename collisions get a `-<id>` suffix; records are pulled sorted by id so the suffix lands on the same record across pulls. Filenames are cosmetic — apply identifies records solely by the `id` field inside the file. Org-scoped collections are filtered by `current_organization`. Server-only fields (`collectionId`, `collectionName`, `created`, `updated`, `expand`) are stripped on read (see `pb.ServerOnlyFields` / `pb.Strip`).

@@ -76,7 +76,7 @@ Verbs `ls / get / create / update / delete / edit` are derived from a single dec
 
 | Type | Flag form | Notes |
 |---|---|---|
-| string, int, bool | `--name foo`, `--validity-years 5`, `--active true` | |
+| string, int, bool | `--name foo`, `--validity-years 5`, `--active` / `--active=false` | |
 | select | `--capability publish` | validated against a whitelist |
 | multiselect | `--capabilities publish,subscribe` | comma-separated |
 | relation (id) | `--type abc123def456ghi` | **15-char PocketBase id only** — natural keys resolve on positional args, never on relation flags |
@@ -146,7 +146,7 @@ stone js stream delete <name>
 stone nats sync-context                               # re-issue per-org creds after rotation
 ```
 
-`stone nats sync-context` is the rotation hook: re-run after `stone nats-user update <id> --regenerate true` or any time the linked `nats_users` record's `creds_file` changes.
+`stone nats sync-context` is the rotation hook: re-run after `stone nats-user update <id> --regenerate` or any time the linked `nats_users` record's `creds_file` changes.
 
 ## Per-org NATS creds
 
@@ -168,12 +168,40 @@ The `nats-sync: skipped` line is informational, not an error:
 | `membership has no linked nats_user` | platform hasn't provisioned a NATS user for this membership yet |
 | `(--no-nats)` | the flag was passed |
 
+## Credential lifecycle — four distinct operations
+
+Do not substitute one of these for another. They differ in blast radius.
+
+| Intent | Command | Effect |
+|---|---|---|
+| Replace my own credential | `stone nats creds rotate` | New creds for the caller's own identity. Any role, incl. badge. No id — derived from the token. |
+| Replace someone else's | `stone nats-user update <username> --regenerate` | New creds for that identity. Owner/admin. |
+| Kill a credential | `stone nats-user update <username> --revoke` | NATS rejects it **immediately and permanently**. Owner/admin. |
+| Decommission the device | `stone thing update <code> --active=false` | Signs the device out, blocks re-login, **and** revokes its NATS credential. Owner/admin. Also on `leaf-node`. |
+
+Rules a caller must not get wrong:
+
+- **Rotation is not revocation.** `--regenerate` leaves the previous credential valid until it expires. After a suspected compromise use `--revoke`.
+- **Never suggest `--active` on `nats-user`; the flag does not exist, deliberately.** `pb-nats` reads that field and consults it nowhere in JWT generation, so clearing it would recolour a status badge while the client kept publishing. It is readable as a status column only. The disconnect operation is `--revoke`.
+- **`--active=false` on a thing or leaf-node is destructive to device operation, not a label.** Reactivating issues a *fresh* NATS credential; the previous `.creds` file stays revoked forever and must be replaced on the device. Confirm intent before running it.
+- `active` round-trips through `pull`/`apply`. A workspace file carrying `active: false` decommissions real hardware on the next apply.
+- Re-run `stone nats sync-context` after any operation that changes the caller's own credential.
+
+Org account signing keys (owner/admin, active org, no record id):
+
+```sh
+stone nats account-keys add-signing              # routine; existing user JWTs stay valid
+stone nats account-keys remove-signing <pubkey>  # last remaining key cannot be removed
+stone nats account-keys rotate                   # EMERGENCY: invalidates every user JWT in the account
+```
+
 ## Known limitations
 
 - Relation flags do not resolve names — pass 15-char PocketBase ids only. (Positional record args on `get`/`update`/`delete`/`edit` *do* accept natural keys.)
 - `apply` does not delete server records absent from the workspace.
 - No JetStream **consumer** management (use `nats` CLI).
-- `nats-account` and `nebula-ca` updates that touch limits or infrastructure fields require operator-level credentials server-side. Org admins can only trigger rotation via `rotate_keys: true`.
+- `nats-account` and `nebula-ca` are **operator-only for every field** — both `updateRule`s admit no tenant role, so an owner/admin PATCH of any field on either returns 404. Tenant key operations live at `stone nats account-keys`. `nebula_ca` has no rotation trigger at all.
+- File fields have no CLI upload path: `locations.floorplan`, `organizations.logo`. Use the console.
 
 ## Configuration files
 

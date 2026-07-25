@@ -240,6 +240,43 @@ func (c *Client) Delete(collection, id string) error {
 	return checkOK(resp)
 }
 
+// CallRoute POSTs to one of the platform's custom (non-collection) routes and
+// decodes the JSON response into out, which may be nil.
+//
+// These routes exist because a PocketBase API rule cannot express a
+// single-field allowlist. Credential rotation and account key management each
+// need to permit a write to exactly one field and forbid every other, which a
+// rule can only approximate with `:isset = false` on everything else — a
+// deny-list that silently opens up when a field is added. The platform's answer
+// is a route that takes no record id (the target is derived from the caller's
+// own identity or active organization) and a switch that maps each action to
+// one field. See the platform's hooks/credential_routes.go and
+// hooks/nats_account_routes.go.
+//
+// body may be nil for routes that take no payload.
+func (c *Client) CallRoute(path string, body any, out any) error {
+	var r io.Reader
+	if body != nil {
+		b, err := json.Marshal(body)
+		if err != nil {
+			return err
+		}
+		r = bytes.NewReader(b)
+	}
+	resp, err := c.do(http.MethodPost, path, r, true)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if err := checkOK(resp); err != nil {
+		return err
+	}
+	if out == nil {
+		return nil
+	}
+	return json.NewDecoder(resp.Body).Decode(out)
+}
+
 // BatchOp is one operation in a /api/batch request.
 type BatchOp struct {
 	Method string         `json:"method"` // "POST" | "PATCH" | "DELETE"

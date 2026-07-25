@@ -98,7 +98,7 @@ There are two ways to wire it up:
    is honored automatically.
 
 Use `stone nats sync-context` to re-issue the context after rotating keys
-(e.g., after `stone nats-user update <id> --regenerate true`).
+(e.g., after `stone nats-user update <id> --regenerate`).
 
 ### When nats-sync skips
 
@@ -187,6 +187,57 @@ and prints it once to **stderr**, so stdout stays clean for `jq`:
 `--password` and `--random-password` are mutually exclusive; exactly one must be
 passed.
 
+## Credential lifecycle
+
+Four distinct operations, easy to confuse. They are not interchangeable.
+
+| Goal | Command |
+| :--- | :--- |
+| Replace **my own** credential | `stone nats creds rotate` |
+| Replace **someone else's** credential | `stone nats-user update <username> --regenerate` |
+| **Kill** a credential (compromise) | `stone nats-user update <username> --revoke` |
+| **Decommission the device** | `stone thing update <code> --active=false` |
+
+**Rotation is not revocation.** Regenerating issues a new credential and leaves
+the old one working until it expires. After a suspected compromise, `--revoke`
+is the one that bites: it adds the public key to the account's revocation list
+and re-signs the account JWT, so NATS rejects the old credential immediately and
+permanently. Re-enable with `--regenerate`, which mints a JWT with a later issue
+time; the revoked one stays dead.
+
+> **There is deliberately no `--active` flag on `nats-user`.** `pb-nats` reads
+> that field into its model and then consults it nowhere in JWT generation — so
+> clearing it turns a status badge red while the client keeps publishing. It
+> remains readable as a status column (pb-nats sets it itself when revoking),
+> but it is not a control. Use `--revoke`.
+
+Deactivating the **device** is the broadest of the four and the one to reach for
+when hardware is retired or presumed lost. `--active=false` on a `thing` or
+`leaf-node` signs it out immediately (its existing session token is invalidated,
+not just blocked at next login), stops it signing back in, and revokes its NATS
+credential. Reactivating issues a *fresh* credential — the old `.creds` stays
+revoked permanently, so the device must be given the new one.
+
+Owner/admin only. Note this round-trips through `pull`/`apply`: a workspace file
+carrying `active: false` decommissions real hardware on the next apply.
+
+## Organization NATS account keys
+
+```sh
+stone nats account-keys add-signing              # routine rotation; existing user JWTs stay valid
+stone nats account-keys remove-signing <pubkey>  # the last remaining key cannot be removed
+stone nats account-keys rotate                   # EMERGENCY: purges all keys, invalidates every user JWT
+```
+
+Owner/admin, scoped to your active organization. These are routes rather than
+record writes because `nats_accounts.updateRule` is operator-only — the record
+mixes tenant-triggerable fields with the account limits and the signed account
+JWT. The route takes no record id, so it cannot be aimed at another tenant.
+
+Reach for `add-signing` for routine rotation. `rotate` is the response to a
+suspected key compromise: every credential in the account must be re-minted
+afterwards.
+
 ## JetStream streams (`stone js stream`)
 
 ```sh
@@ -227,9 +278,13 @@ All KV operations — bucket lifecycle and per-key data — live under `stone kv
 - Apply does not delete server records that are missing locally. Use the
   web UI or `stone <type> delete` for that.
 - No JetStream consumer management — the `nats` CLI is better at that.
-- `nats-account` and `nebula-ca` updates that touch limits or infrastructure
-  fields require operator-level credentials server-side. Org admins can only
-  trigger key/CA rotation (`rotate_keys: true`).
+- `nats-account` and `nebula-ca` are **operator-only for every field**. Both
+  `updateRule`s admit no tenant role, so an owner/admin PATCH of any field on
+  either collection returns 404. The three legitimate tenant key operations live
+  behind `stone nats account-keys` instead. `nebula_ca` has no rotation trigger
+  at all — rolling a CA is an operator action.
+- Locations' `floorplan` and organizations' `logo` are file fields; the CLI has
+  no upload path for them. Use the console.
 
 ## AI assistant integration
 
