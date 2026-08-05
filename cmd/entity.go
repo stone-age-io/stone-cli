@@ -171,6 +171,7 @@ var entitySpecs = []EntitySpec{
 			{Name: "name", Type: FString, Help: "display name"},
 			{Name: "code", Type: FString, Help: "stable short code"},
 			{Name: "description", Type: FString, Help: "free-form description"},
+			{Name: "metadata_schema", Type: FJSON, Help: "JSON Schema that validates locations.metadata for this type (inline JSON, @file, or -)"},
 		},
 	},
 	{
@@ -188,6 +189,7 @@ var entitySpecs = []EntitySpec{
 			{Name: "subject_prefix", Type: FString, Help: "subject prefix template"},
 			{Name: "operations", Type: FIDs, Help: "thing_type_operations ids (comma-separated or repeat flag)"},
 			{Name: "nats_role", Type: FID, Help: "nats_roles id: turns this type's operations into runtime NATS permissions"},
+			{Name: "metadata_schema", Type: FJSON, Help: "JSON Schema that validates things.metadata for this type (inline JSON, @file, or -)"},
 		},
 	},
 	{
@@ -249,7 +251,7 @@ var entitySpecs = []EntitySpec{
 		Fields: []Field{
 			{Name: "user", Type: FID, Required: true, Help: "users id"},
 			{Name: "organization", Type: FID, Required: true, Help: "organizations id"},
-			{Name: "role", Type: FSelect, Values: []string{"owner", "admin", "member", "badge"}, Required: true, Help: "membership role"},
+			{Name: "role", Type: FSelect, Values: []string{"owner", "admin", "member", "viewer", "dashboard"}, Required: true, Help: "membership role"},
 			{Name: "invited_by", Type: FID, Help: "users id of inviter"},
 			{Name: "nats_user", Type: FID, Help: "nats_users id linked to this membership"},
 		},
@@ -263,7 +265,7 @@ var entitySpecs = []EntitySpec{
 		LookupKey:  "email",
 		Fields: []Field{
 			{Name: "email", Type: FString, Required: true, Help: "invitee email"},
-			{Name: "role", Type: FSelect, Values: []string{"admin", "member", "badge"}, Required: true, Help: "membership role to grant"},
+			{Name: "role", Type: FSelect, Values: []string{"admin", "member", "viewer", "dashboard"}, Required: true, Help: "membership role to grant"},
 			{Name: "token", Type: FString, Help: "invite token (auto-generated if blank)"},
 			{Name: "expires_at", Type: FString, Help: "RFC 3339 expiry timestamp"},
 			{Name: "resend_invite", Type: FBool, Help: "set true to trigger resend"},
@@ -326,7 +328,7 @@ var entitySpecs = []EntitySpec{
 			{Name: "max_payload", Type: FInt, Help: "max message payload bytes (-1 = unlimited)"},
 			{Name: "allow_response", Type: FBool, Help: "allow publishing responses to reply subjects of received requests"},
 			{Name: "allow_response_max", Type: FInt, Help: "max allowed responses per request (0 = server default)"},
-			{Name: "allow_response_ttl", Type: FInt, Help: "response permission expiry in nanoseconds (Go duration; 0 = none)"},
+			{Name: "allow_response_ttl", Type: FInt, Help: "response permission expiry in seconds (0 = no expiration)"},
 			{Name: "publish_permissions", Type: FJSON, Help: "publish allow rules (JSON; @file or - accepted)"},
 			{Name: "subscribe_permissions", Type: FJSON, Help: "subscribe allow rules (JSON)"},
 			{Name: "publish_deny_permissions", Type: FJSON, Help: "publish deny rules (JSON)"},
