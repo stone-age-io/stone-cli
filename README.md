@@ -3,9 +3,19 @@
 Opinionated CLI for the [Stone Age IoT Platform](https://github.com/stone-age-io).
 
 `stone` complements the web console with command-line ergonomics for the things
-the platform actually does: managing tenant resources (things, locations, thing
-types, message schemas), publishing/subscribing to NATS, reading JetStream KV,
-and syncing a workspace of YAML files declaratively (GitOps style).
+the platform actually does: managing tenant resources (things, locations, and
+the thing-type contract graph), publishing/subscribing to NATS, reading
+JetStream KV, and pulling a tenant's configuration down as a folder of YAML you
+can review, diff, and apply back from `git`.
+
+Two names worth keeping straight: **`stone`** (this repo) is the client CLI you
+run from a laptop or CI runner; **`stone-age`** is the platform server binary —
+the Control Plane — that it talks to.
+
+> **On "GitOps":** `stone apply` is a one-way, additive upsert, not a
+> convergence loop. It creates and updates from files, never deletes, and does
+> not detect drift until you `pull` again. Reviewable and reproducible, yes; a
+> reconciler, no. See [Pull / apply](#pull--apply).
 
 ## Quickstart
 
@@ -133,6 +143,14 @@ endpoint. Records with an `id` are PATCHed; records without are POSTed and the
 returned id is written back into the file. Apply is safe to re-run.
 
 For diff/status/history, put the workspace in `git`.
+
+**What you get and what you don't.** Apply creates and updates; it never
+deletes, and it has no control loop. So the workspace is a snapshot from your
+last `pull` plus your edits — not a live mirror of the server. A record someone
+created in the console won't be in your workspace until you pull again, and two
+people applying different edits to the same record will not conflict: the last
+apply wins, field by field, silently. If a workspace is shared, `pull` before
+`apply` the way you'd `git pull` before pushing.
 
 ## Entities supported by typed CRUD
 
