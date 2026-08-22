@@ -20,8 +20,14 @@ the Control Plane — that it talks to.
 ## Quickstart
 
 ```sh
-# 1) Build
-go build -o stone
+# 1) Get the binary -- prebuilt, for the platform you are on
+VERSION=0.1.0
+curl -sSLO https://github.com/stone-age-io/stone-cli/releases/download/v${VERSION}/stone_${VERSION}_linux_amd64.tar.gz
+tar xzf stone_${VERSION}_linux_amd64.tar.gz     # unpacks ./stone, LICENSE, README.md, SKILLS.md
+
+#    linux, darwin and windows are all built, amd64 and arm64 each:
+#    https://github.com/stone-age-io/stone-cli/releases/latest
+#    Or build it yourself, which needs Go 1.25+:  go build -o stone
 
 # 2) Create a context pointing at your platform server
 ./stone context create local \
