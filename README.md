@@ -330,6 +330,29 @@ when you change command shapes that an assistant might rely on.
 ```sh
 go build ./...
 go vet ./...
+go test ./...
 ```
 
 Module path: `github.com/stone-age-io/stone-cli`. Go 1.25+.
+
+### The entity table is checked against the platform's schema
+
+The field table in `cmd/entity.go` is hand-maintained, not generated — so the
+tests compare it against a **vendored copy** of the platform's collection
+schema at `cmd/testdata/schema.json`. They fail in both directions: a flag for a
+field the platform does not have (PocketBase discards that write and the command
+reports success), and a platform field the CLI neither exposes nor records a
+reason for.
+
+When the platform's schema changes, refresh the copy and run the tests:
+
+```sh
+cp ../platform/schema.json cmd/testdata/schema.json
+go test ./...
+```
+
+A failure then tells you exactly what moved. Add the field to the spec, or add it
+to `deliberatelyOmitted` in `cmd/schema_drift_test.go` with the reason — "why is
+there no flag for this" is the question that list exists to answer.
+`cmd/testdata/schema-source.txt` records which platform version the copy came
+from.

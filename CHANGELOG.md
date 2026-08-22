@@ -10,7 +10,20 @@ that period, and this file starts where the versioned releases do.
 
 ## [Unreleased]
 
-_Nothing yet._
+### Added
+
+- **Tests.** The repo had none, so CI's `go test ./...` ran over nothing. The
+  entity table is now checked for internal consistency — dispatchable field
+  types, known verbs, a `LookupKey` that names a real field, no flag colliding
+  with one a command registers itself, no command name or alias claimed twice —
+  and separately against a **vendored copy of the platform's schema**
+  (`cmd/testdata/schema.json`), in both directions: a flag for a field the
+  platform does not have, and a platform field the CLI neither exposes nor
+  explains. Refresh the copy with
+  `cp ../platform/schema.json cmd/testdata/schema.json`.
+
+  This closes the drift the docs have always warned about: the field list is
+  hand-maintained, and until now nothing would tell you it had fallen behind.
 
 ## [0.1.0] - 2026-08-22
 

@@ -1,0 +1,11 @@
+The platform's collection schema, vendored so the CLI can check its own
+field table against it. This file is DATA, not the source of truth -- the source
+is the platform repo.
+
+source:   https://github.com/stone-age-io/platform/blob/main/schema.json
+platform: v0.2.0 (repo at bc28ab4)
+schema.json last changed in platform commit: a4e08b8
+copied:   2026-08-22
+
+Refresh with:
+  cp ../platform/schema.json cmd/testdata/schema.json
