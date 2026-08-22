@@ -1,0 +1,53 @@
+# Ordinary build hygiene on every push and pull request.
+#
+# There are no tests in this repo yet; `go test ./...` is here anyway so that the
+# first one added is run rather than merely committed. The build step is what
+# currently catches breakage, and it is a real check for a CLI whose command
+# table is hand-maintained.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Check formatting
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "Files not gofmt-formatted:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test ./...
+
+      - name: Build
+        run: go build ./...
+
+      # The release matrix, checked on every PR rather than discovered on a tag.
+      # Cheap: the stdlib for each target is cached by setup-go.
+      - name: Cross-compile the release targets
+        run: |
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do
+            echo "==> $target"
+            CGO_ENABLED=0 GOOS=${target%/*} GOARCH=${target#*/} go build -o /dev/null .
+          done

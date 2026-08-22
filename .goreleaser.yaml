@@ -1,0 +1,92 @@
+# Release configuration for the client CLI.
+#
+# One binary, six targets, no build hooks -- `stone` is a plain Go client with
+# nothing embedded in it, which is the whole difference between this file and the
+# platform's. It talks to a running server over HTTPS and NATS, so there is no
+# console to compile first and no reason to ship anything but the binary.
+#
+# The binary is `stone`; the repo and module are `stone-cli`. Archives are named
+# after the binary, because that is the name a user types and searches for.
+version: 2
+
+project_name: stone-cli
+
+builds:
+  - id: stone
+    main: .
+    binary: stone
+    env:
+      # Nothing in the dependency tree needs cgo, so every target below
+      # cross-compiles from one runner.
+      - CGO_ENABLED=0
+    ldflags:
+      # cmd.version is unexported, which -X handles fine; it is read into
+      # rootCmd.Version at init, after the linker has written it.
+      - -s -w -X github.com/stone-age-io/stone-cli/cmd.version={{.Version}}
+    goos: [linux, darwin, windows]
+    # windows/arm64 is included here and excluded in the platform, deliberately:
+    # this is a laptop and CI-runner tool, and ARM Windows laptops exist. A
+    # server binary has no such audience.
+    goarch: [amd64, arm64]
+
+archives:
+  - id: stone
+    ids: [stone]
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files:
+      - LICENSE
+      - README.md
+      # The audience-neutral description of the command surface, for people
+      # driving the CLI from another tool or assistant. It travels with the
+      # binary because it documents exactly this version's commands.
+      - SKILLS.md
+    name_template: >-
+      stone_
+      {{- .Version }}_
+      {{- .Os }}_
+      {{- .Arch }}
+
+checksum:
+  name_template: 'checksums.txt'
+  algorithm: sha256
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^chore:'
+      - '^ci:'
+
+release:
+  github:
+    owner: stone-age-io
+    name: stone-cli
+  header: |
+    ## stone {{ .Tag }}
+
+    The command-line client for the Stone-Age.io platform. Extract the binary
+    onto a laptop or CI runner and point it at a running server:
+
+    ```
+    stone context create local --url https://platform.example.com
+    stone auth login
+    ```
+
+    **`stone` is not `stone-age`.** This is the client; `stone-age` is the
+    control-plane server, released from the
+    [platform](https://github.com/stone-age-io/platform) repo. They share a
+    project, not a job.
+  footer: |
+    Pre-1.0: treat a minor version as potentially breaking, and pin what you
+    deploy.
+
+    The CLI's field list is hand-maintained rather than derived from the
+    platform's `schema.json`, so a given `stone` can lag a platform release. If a
+    field exists in the console but has no flag, that is why.
+
+    **Full changelog**: https://github.com/stone-age-io/stone-cli/commits/{{ .Tag }}

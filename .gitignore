@@ -4,3 +4,6 @@
 *.test
 *.out
 .DS_Store
+
+# goreleaser output
+dist/
