@@ -50,10 +50,14 @@ type SyncOptions struct {
 
 // SyncResult reports where files landed and what label to use.
 type SyncResult struct {
-	Name      string // nats-cli context name
-	CredsPath string // absolute path to the written .creds file
-	CtxPath   string // absolute path to the written nats-cli context JSON
+	Name        string // nats-cli context name
+	CredsPath   string // absolute path to the written .creds file
+	CtxPath     string // absolute path to the written nats-cli context JSON
+	RemovedPath string // stale context cleaned up from the old location, if any
 }
+
+// managedPrefix marks the context files stone owns and may rewrite or remove.
+const managedPrefix = "managed by stone"
 
 // natsContextName returns the canonical nats-cli context name for a stone
 // context + org pair: "stone-<stoneCtx>-<sanitizedOrgName>".
@@ -101,6 +105,7 @@ func SyncContextForOrg(opts SyncOptions) (SyncResult, error) {
 		return res, err
 	}
 	res.CtxPath = ctxPath
+	res.RemovedPath = cleanupLegacyContext(res.Name)
 	if opts.SetSelected {
 		if err := setSelectedContext(res.Name); err != nil {
 			return res, fmt.Errorf("wrote %s but failed to set selected: %w", ctxPath, err)
@@ -110,7 +115,7 @@ func SyncContextForOrg(opts SyncOptions) (SyncResult, error) {
 }
 
 func defaultDescription(opts SyncOptions) string {
-	parts := []string{"managed by stone"}
+	parts := []string{managedPrefix}
 	if opts.StoneContext != "" {
 		parts = append(parts, "stone-context="+opts.StoneContext)
 	}
@@ -136,9 +141,11 @@ func writeCredsFile(name, content string) (string, error) {
 	return path, nil
 }
 
-// writeNATSContextFile writes the JSON file nats-cli/orbit.go expect.
+// writeNATSContextFile writes the JSON file nats-cli/orbit.go expect, into the
+// directory they actually read from — see paths.go, and note that it is NOT
+// xdg.ConfigHome.
 func writeNATSContextFile(name string, f natsCtxFile) (string, error) {
-	dir := filepath.Join(xdg.ConfigHome, "nats", "context")
+	dir := ContextDir()
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", fmt.Errorf("create nats context dir: %w", err)
 	}
@@ -153,13 +160,13 @@ func writeNATSContextFile(name string, f natsCtxFile) (string, error) {
 	return path, nil
 }
 
-// setSelectedContext updates ~/.config/nats/context.txt.
+// setSelectedContext updates nats-cli's selected-context pointer.
 func setSelectedContext(name string) error {
-	dir := filepath.Join(xdg.ConfigHome, "nats")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	path := SelectedContextPath()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(dir, "context.txt"), []byte(name+"\n"), 0o644)
+	return os.WriteFile(path, []byte(name+"\n"), 0o644)
 }
 
 // sanitize replaces characters that orbit.go's validName rejects.

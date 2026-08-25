@@ -106,15 +106,21 @@ active organization — so don't add one.
 `internal/natsx/sync.go` is the non-obvious one. When the stone context has `nats_url` set, `stone org switch <org>` (and `stone nats sync-context`):
 1. Looks up the caller's `memberships` record for that org.
 2. Reads the linked `nats_users` record's `creds_file` field.
-3. Writes `~/.config/stone/creds/stone-<ctx>-<org>.creds` (the creds payload) and `~/.config/nats/context/stone-<ctx>-<org>.json` (a nats-cli context JSON pointing at it).
+3. Writes `<xdg.ConfigHome>/stone/creds/stone-<ctx>-<org>.creds` (the creds payload) and `<natsConfig>/nats/context/stone-<ctx>-<org>.json` (a nats-cli context JSON pointing at it).
 4. Updates the stone context's `nats_context` field to the new name.
 
-The matching shape lives in `natsCtxFile` and must stay compatible with both nats-cli and orbit.go's `natscontext` package. Connections in `internal/natsx/connect.go` go through `natscontext.Connect(c.NATSContext, ...)` so the user's nats-cli contexts are reused — JetStream domain is honored automatically.
+The matching shape lives in `natsCtxFile` and must stay compatible with both nats-cli and orbit.go's `natscontext` package.
+
+**Two different config roots, deliberately** (`internal/natsx/paths.go`):
+- stone's own state (contexts, creds) lives under `xdg.ConfigHome`, which follows platform convention — `%LOCALAPPDATA%` on Windows, `~/Library/Application Support` on macOS, `~/.config` on Linux.
+- nats-cli context files must go where the nats tooling looks, which is `$XDG_CONFIG_HOME` or **`~/.config` on every OS** — nats-cli and orbit.go do not use platform conventions. Use `natsx.ContextDir()` / `ContextPath()` / `SelectedContextPath()`, never `xdg.ConfigHome`, for anything nats-cli must read. Writing contexts under `xdg.ConfigHome` is what silently broke sync on Windows and macOS: `sync-context` printed a path and success, and every later command died with `unknown context`. `SyncContextForOrg` removes an orphan left at the old location (only after confirming its description starts with `managed by stone`) and reports it as `RemovedPath`.
+
+`natsx.Connect` resolves the context file itself and passes natscontext an **absolute path**, so the two cannot disagree about where contexts live. An unset or unresolvable `nats_context` is a hard error: falling through to the user's selected nats-cli context (natscontext's behavior for an empty name) connects to an unrelated server, or to `localhost:4222` when nothing is selected, and then looks exactly like a subscription that receives nothing. `--nats-context <name>` (persistent flag, applied in `cmd.natsConnect`) is the deliberate override. Every connection carries an `ErrorHandler`; without it nats.go swallows async server errors such as `Permissions Violation for Subscription to ...` — the other reason a sub sits silent. JetStream domain is honored automatically.
 
 `org switch` always switches the org server-side; the NATS sync is a separate step that may print `nats-sync: skipped — <reason>` (no `nats_url`, no membership, no linked `nats_user`, or `--no-nats`). Don't conflate the two.
 
 ### NATS / JetStream commands
-- `cmd/nats.go` — `pub` / `sub` / `request`. `pub --js` routes through JetStream and prints the ack.
+- `cmd/nats.go` — `pub` / `sub` / `request`, plus `natsConnect`, the helper every NATS-touching command dials through. `pub --js` routes through JetStream and prints the ack. `sub` flushes after subscribing and checks `sub.IsValid()` before printing `listening`, so a rejected subscription fails instead of hanging silently; it is a core subscription, so it never replays what a stream already holds (that's `js stream view`).
 - `cmd/js.go` — stream/KV-bucket lifecycle admin, plus `js stream view` to read the last N stored messages (walks backward from `LastSeq` via `Stream.GetMsg`, tolerating purged-sequence gaps).
 - `cmd/kv.go` — data-plane KV (`get`/`put`/`del`/`watch`/`ls keys`).
 - Consumer management is intentionally absent — the `nats` CLI handles it better.

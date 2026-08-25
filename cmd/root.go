@@ -14,9 +14,10 @@ var (
 	version = "dev"
 
 	// Persistent flags available on every command.
-	flagContext string
-	flagOutput  string
-	flagDebug   bool
+	flagContext     string
+	flagOutput      string
+	flagDebug       bool
+	flagNATSContext string
 )
 
 var rootCmd = &cobra.Command{
@@ -40,6 +41,7 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(&flagContext, "context", "", "context name to use (overrides active context)")
 	rootCmd.PersistentFlags().StringVarP(&flagOutput, "output", "o", "", "output format: table | json | yaml")
 	rootCmd.PersistentFlags().BoolVar(&flagDebug, "debug", false, "log HTTP requests and responses to stderr")
+	rootCmd.PersistentFlags().StringVar(&flagNATSContext, "nats-context", "", "nats-cli context to connect with (overrides the stone context's nats_context)")
 
 	// Subcommands are wired up in their own init() funcs by importing them
 	// indirectly via this package; see individual command files.

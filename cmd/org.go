@@ -181,8 +181,11 @@ var orgSwitchCmd = &cobra.Command{
 		fmt.Printf("nats-sync: wrote context %q\n", res.Name)
 		fmt.Printf("           context: %s\n", res.CtxPath)
 		fmt.Printf("           creds:   %s\n", res.CredsPath)
+		if res.RemovedPath != "" {
+			fmt.Printf("           removed: %s (stale copy nats-cli could not see)\n", res.RemovedPath)
+		}
 		if setDefault {
-			fmt.Println("           set as nats-cli default (~/.config/nats/context.txt)")
+			fmt.Printf("           set as nats-cli default (%s)\n", natsx.SelectedContextPath())
 		}
 		return nil
 	},

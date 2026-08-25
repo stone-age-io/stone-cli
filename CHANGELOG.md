@@ -10,7 +10,46 @@ that period, and this file starts where the versioned releases do.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-08-25
+
+NATS was broken on Windows and macOS, in two ways that hid each other. If you
+run either, this release is the reason to upgrade.
+
+### Fixed
+
+- **`sync-context` wrote nats-cli contexts where nats-cli does not read them.**
+  stone resolved the directory with `xdg.ConfigHome`, which follows platform
+  convention — `%LOCALAPPDATA%` on Windows, `~/Library/Application Support` on
+  macOS. The nats tooling uses its own rule instead: `$XDG_CONFIG_HOME`, else
+  `~/.config`, on every OS. So `sync-context` printed a path and reported
+  success while writing to a dead drop, and the next command failed with
+  `unknown context`. On Linux the two rules coincide, which is why this went
+  unnoticed. Contexts now go where `nats` reads them; a stale file left at the
+  old location is removed and named in the output, but only after stone
+  confirms it wrote the file itself.
+
+- **NATS commands silently connected to the wrong server.** With no
+  `nats_context` set, stone passed an empty name to `natscontext.Connect`,
+  whose documented behaviour is to fall through to whatever
+  `nats context select` points at — or to `localhost:4222` when nothing is
+  selected. `stone nats sub` would connect to an unrelated server and report
+  `listening`, indistinguishable from a subject with no traffic. An unset or
+  unresolvable context is now an error that names the path it looked for.
+
+- **Async server errors were swallowed.** No `ErrorHandler` was registered, so
+  `Permissions Violation for Subscription to ...` — the other reason a `sub`
+  sits silent — never reached the user. Every connection now reports async
+  errors, disconnects, and reconnects on stderr, and `sub` flushes the
+  subscription and checks it survived before claiming to listen.
+
 ### Added
+
+- **`--nats-context <name>`**, a persistent flag, to connect with a specific
+  nats-cli context for one command. This is the deliberate override that
+  replaces the accidental fallback above.
+
+- **`stone context show` reports the NATS context file**: its full path, or
+  `MISSING` plus the command that regenerates it.
 
 - **Tests.** The repo had none, so CI's `go test ./...` ran over nothing. The
   entity table is now checked for internal consistency — dispatchable field
@@ -24,6 +63,11 @@ that period, and this file starts where the versioned releases do.
 
   This closes the drift the docs have always warned about: the field list is
   hand-maintained, and until now nothing would tell you it had fallen behind.
+
+  The NATS context path has a guard of its own: a test writes a context through
+  the real sync path and asserts `natscontext` can then find it by name. That
+  is the contract the bug above broke, and it is the kind that only fails on an
+  OS the author is not using.
 
 ## [0.1.0] - 2026-08-22
 
@@ -73,5 +117,6 @@ Summarising the state at first tag rather than the path to it:
 - `auth login` is interactive by design; credentials cannot be discovered by the
   CLI, which is also what stops an assistant authenticating as you.
 
-[Unreleased]: https://github.com/stone-age-io/stone-cli/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/stone-age-io/stone-cli/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/stone-age-io/stone-cli/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/stone-age-io/stone-cli/releases/tag/v0.1.0

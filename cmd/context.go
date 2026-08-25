@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/stone-age-io/stone-cli/internal/ctx"
+	"github.com/stone-age-io/stone-cli/internal/natsx"
 )
 
 var contextCmd = &cobra.Command{
@@ -113,7 +114,15 @@ var contextShowCmd = &cobra.Command{
 		fmt.Printf("auth.email:           %s\n", or(c.Auth.Email, "(unset)"))
 		fmt.Printf("auth.expires:         %s\n", or(c.Auth.Expires, "(unset)"))
 		fmt.Printf("current_organization: %s\n", or(c.CurrentOrganization, "(unset)"))
-		fmt.Printf("nats_context:         %s\n", or(c.NATSContext, "(default)"))
+		switch {
+		case c.NATSContext == "":
+			fmt.Println("nats_context:         (unset — run: stone nats sync-context)")
+		case natsx.ContextExists(c.NATSContext):
+			fmt.Printf("nats_context:         %s (%s)\n", c.NATSContext, natsx.ContextPath(c.NATSContext))
+		default:
+			fmt.Printf("nats_context:         %s (MISSING at %s — run: stone nats sync-context)\n",
+				c.NATSContext, natsx.ContextPath(c.NATSContext))
+		}
 		fmt.Printf("workspace:            %s\n", or(c.Workspace, "(unset)"))
 		if c.Auth.Token != "" {
 			fmt.Println("auth.token:           (set)")

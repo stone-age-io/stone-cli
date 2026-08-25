@@ -90,7 +90,7 @@ auth:
   email: admin@example.com
   user_id: abc123xyz0...
 current_organization: orgID0000000001
-nats_context: stone-local      # optional; empty = nats-cli default context
+nats_context: stone-local      # nats-cli context to connect with; required for NATS commands
 workspace: /home/me/my-workspace
 ```
 
@@ -104,17 +104,32 @@ There are two ways to wire it up:
 1. **Per-org sync (recommended).** Set `nats_url` on the stone context once
    (via `--nats-url` on `context create` or `org switch`). Then `stone org
    switch <org>` looks up your membership, reads the linked `nats_user`'s
-   `creds_file`, writes a fresh `~/.config/stone/creds/stone-<ctx>-<org>.creds`,
-   and writes a matching `~/.config/nats/context/stone-<ctx>-<org>.json`.
+   `creds_file`, writes a fresh creds file under stone's config dir, and writes
+   a matching `~/.config/nats/context/stone-<ctx>-<org>.json`.
    The stone context's `nats_context` field is updated to point at it.
    Pass `--set-nats-default` to also update the nats-cli default context.
 
 2. **Manual.** Set `nats_context` in the stone context yourself, pointing
-   at any `nats context add` you've already created. JetStream domain (if any)
+   at any `nats context add` you've already created, or pass
+   `--nats-context <name>` on a single command. JetStream domain (if any)
    is honored automatically.
 
 Use `stone nats sync-context` to re-issue the context after rotating keys
 (e.g., after `stone nats-user update <id> --regenerate`).
+
+`stone context show` prints where it expects the context file and flags it as
+`MISSING` when it isn't there.
+
+**Context files always live in `~/.config/nats/context/`** (or
+`$XDG_CONFIG_HOME/nats/context/`), on Windows and macOS too — that's where the
+`nats` cli itself reads them, so the two tools stay interchangeable. If you
+upgraded from a version that wrote them elsewhere, `sync-context` moves the file
+and tells you what it removed.
+
+If `nats_context` is unset or its file is missing, NATS commands stop with an
+error naming the path. They deliberately do **not** fall back to whatever
+`nats context select` points at: that fallback connects to an unrelated server
+and shows up as a subscription that never receives anything.
 
 ### When nats-sync skips
 
@@ -133,6 +148,20 @@ step that can short-circuit. When it does, the output line starts with
 Pass `--verbose` to either `stone org switch` or `stone nats sync-context`
 to see the user id, membership id, NATS user id, and `creds_file` length
 on stderr.
+
+### When `stone nats sub` shows nothing
+
+`sub` prints the server it connected to, so start there — if that URL isn't the
+one you expected, your `nats_context` points at the wrong context. Otherwise:
+
+- **The messages are already stored, not still flowing.** `sub` is a core NATS
+  subscription: it only shows what is published from now on. To read what a
+  stream already holds, use `stone js stream view <stream>`.
+- **Your creds can't read that subject.** The server's reply
+  (`Permissions Violation for Subscription to ...`) is printed to stderr and
+  the command exits; check the `nats_role` on your `nats_user`.
+- **Nothing is publishing.** Confirm with `stone js stream ls` — a stream whose
+  `MESSAGES` count is climbing has live traffic.
 
 ## Pull / apply
 

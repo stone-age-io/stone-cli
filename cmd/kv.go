@@ -150,7 +150,7 @@ func openKV(bucket string) (jetstream.KeyValue, func(), error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	nc, settings, err := natsx.Connect(c)
+	nc, settings, err := natsConnect(c)
 	if err != nil {
 		return nil, nil, err
 	}

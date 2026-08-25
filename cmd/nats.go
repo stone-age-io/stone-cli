@@ -15,14 +15,28 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/stone-age-io/stone-cli/internal/ctx"
 	"github.com/stone-age-io/stone-cli/internal/natsx"
+	"github.com/synadia-io/orbit.go/natscontext"
 )
 
 var natsCmd = &cobra.Command{
 	Use:   "nats",
 	Short: "Publish, subscribe, and request against NATS",
-	Long: `NATS commands use the nats-cli context configured on the stone context
-(via 'nats_context' in the context file) or the user's default nats-cli context
-when unset.`,
+	Long: `NATS commands connect with the nats-cli context named by 'nats_context' on
+the active stone context, which 'stone org switch' and 'stone nats sync-context'
+generate. Pass --nats-context <name> to use a different one.
+
+If no context is set, stone stops rather than falling back to whichever context
+'nats context select' happens to point at — that fallback silently connects to
+an unrelated server.`,
+}
+
+// natsConnect is the canonical way commands dial NATS. It applies the
+// persistent --nats-context override.
+func natsConnect(c ctx.Context, opts ...nats.Option) (*nats.Conn, natscontext.Settings, error) {
+	if flagNATSContext != "" {
+		c.NATSContext = flagNATSContext
+	}
+	return natsx.Connect(c, opts...)
 }
 
 var natsPubCmd = &cobra.Command{
@@ -48,7 +62,7 @@ With --js, the publish goes through JetStream and prints the ack
 		}
 		useJS, _ := cmd.Flags().GetBool("js")
 
-		nc, settings, err := natsx.Connect(c)
+		nc, settings, err := natsConnect(c)
 		if err != nil {
 			return err
 		}
@@ -78,7 +92,12 @@ With --js, the publish goes through JetStream and prints the ack
 var natsSubCmd = &cobra.Command{
 	Use:   "sub <subject>",
 	Short: "Subscribe to a subject and print messages until Ctrl-C",
-	Args:  cobra.ExactArgs(1),
+	Long: `Subscribe to a subject and print messages as they arrive.
+
+This is a core NATS subscription: it shows messages published from now on, not
+messages already stored in a JetStream stream. To read what a stream already
+holds, use 'stone js stream view <stream>'.`,
+	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		c, err := ctx.Active(flagContext)
 		if err != nil {
@@ -86,13 +105,13 @@ var natsSubCmd = &cobra.Command{
 		}
 		jsonOut, _ := cmd.Flags().GetBool("json")
 
-		nc, _, err := natsx.Connect(c)
+		nc, _, err := natsConnect(c)
 		if err != nil {
 			return err
 		}
 		defer nc.Drain()
 
-		_, err = nc.Subscribe(args[0], func(m *nats.Msg) {
+		sub, err := nc.Subscribe(args[0], func(m *nats.Msg) {
 			if jsonOut {
 				fmt.Printf(`{"subject":%q,"reply":%q,"data":%q}`+"\n", m.Subject, m.Reply, string(m.Data))
 				return
@@ -102,7 +121,17 @@ var natsSubCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(os.Stderr, "listening on %q (Ctrl-C to stop)\n", args[0])
+		// Push the SUB to the server and wait for the round trip before
+		// claiming to be listening: a subject the creds can't read comes back
+		// as a permissions violation, which the connection's error handler
+		// prints to stderr.
+		if err := nc.Flush(); err != nil {
+			return fmt.Errorf("subscribe to %q: %w", args[0], err)
+		}
+		if !sub.IsValid() {
+			return fmt.Errorf("subscription to %q was rejected by the server (see the error above)", args[0])
+		}
+		fmt.Fprintf(os.Stderr, "listening on %q via %s (Ctrl-C to stop)\n", args[0], nc.ConnectedUrl())
 		waitForSignal()
 		return nil
 	},
@@ -123,7 +152,7 @@ var natsReqCmd = &cobra.Command{
 		}
 		timeout, _ := cmd.Flags().GetDuration("timeout")
 
-		nc, _, err := natsx.Connect(c)
+		nc, _, err := natsConnect(c)
 		if err != nil {
 			return err
 		}
@@ -153,7 +182,7 @@ func readPayload(arg string) ([]byte, error) {
 
 func waitForSignal() {
 	sig := make(chan os.Signal, 1)
-	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
+	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
 	<-sig
 }
 
@@ -209,6 +238,9 @@ or if the local files have drifted.`,
 		fmt.Printf("nats-context: %s\n", res.Name)
 		fmt.Printf("context:      %s\n", res.CtxPath)
 		fmt.Printf("creds:        %s\n", res.CredsPath)
+		if res.RemovedPath != "" {
+			fmt.Printf("removed:      %s (stale copy nats-cli could not see)\n", res.RemovedPath)
+		}
 		if setDefault {
 			fmt.Println("set as nats-cli default")
 		}
