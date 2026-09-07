@@ -40,7 +40,7 @@ A context bundles: `url`, `auth` (PB token + collection + email), `current_organ
 Context names must match `^[A-Za-z0-9_-]{1,50}$` — they're used as filesystem paths.
 
 ### Entity CRUD is data-driven
-`cmd/entity.go` is the heart of typed CRUD. It declares 18 `EntitySpec` values (thing, location, location-type, thing-type, thing-type-operation, message-schema, organization, membership, invite, nats-user, nats-role, nats-import, nats-export, nats-account, nebula-network, nebula-host, nebula-ca, leaf-node). Each spec lists:
+`cmd/entity.go` is the heart of typed CRUD. It declares 17 `EntitySpec` values (thing, location, location-type, thing-type, thing-type-operation, organization, membership, invite, nats-user, nats-role, nats-import, nats-export, nats-account, nebula-network, nebula-host, nebula-ca, leaf-node). Each spec lists:
 - `Collection` — PocketBase collection name
 - `OrgScoped` — auto-inject `organization` on create / filter by it on `ls`
 - `KeyColumns` — table columns shown by `ls`
@@ -98,7 +98,7 @@ active organization — so don't add one.
 
 ### Pull / apply (GitOps)
 `cmd/sync.go`:
-- `stone pull` writes one YAML file per record into `<workspace>/<collection>/<key>.yaml`, where `<key>` is the spec's `LookupKey` value (message-schemas use `ns__name__version`; fallback `name`, then id). Filename collisions get a `-<id>` suffix; records are pulled sorted by id so the suffix lands on the same record across pulls. Filenames are cosmetic — apply identifies records solely by the `id` field inside the file. Org-scoped collections are filtered by `current_organization`. Server-only fields (`collectionId`, `collectionName`, `created`, `updated`, `expand`) are stripped on read (see `pb.ServerOnlyFields` / `pb.Strip`).
+- `stone pull` writes one YAML file per record into `<workspace>/<collection>/<key>.yaml`, where `<key>` is the spec's `LookupKey` value, falling back to `name`, then id. Filename collisions get a `-<id>` suffix; records are pulled sorted by id so the suffix lands on the same record across pulls. Filenames are cosmetic — apply identifies records solely by the `id` field inside the file. Org-scoped collections are filtered by `current_organization`. Server-only fields (`collectionId`, `collectionName`, `created`, `updated`, `expand`) are stripped on read (see `pb.ServerOnlyFields` / `pb.Strip`).
 - `stone apply` walks the workspace, infers each record's collection from its parent directory, batches up to **50 ops per request** (`batchSize` constant), and POSTs through PocketBase's transactional `/api/batch`. Records with `id` are PATCHed; records without are POSTed and the server-assigned id is written back into the file. Apply is idempotent. It deliberately does **not** delete records absent from the workspace.
 - The list of collections pull/apply knows about is derived from `entitySpecs` (it reuses `OrgScoped` to inject `organization` on create). Adding an `EntitySpec` automatically extends both pull and apply.
 

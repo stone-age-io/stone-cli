@@ -6,7 +6,7 @@ This document describes the `stone` CLI's capability surface for integration wit
 
 `stone` is the CLI for the Stone Age IoT Platform. An assistant that can shell out to `stone` can:
 
-- Manage tenant resources (things, locations, thing-types, message schemas, memberships, NATS users/roles, Nebula networks/hosts) with typed CRUD.
+- Manage tenant resources (things, locations, thing-types, memberships, NATS users/roles, Nebula networks/hosts) with typed CRUD.
 - Operate declaratively on a YAML workspace via `pull` and `apply` (PocketBase `/api/batch`, up to 50 ops per request, idempotent, no deletes).
 - Publish, subscribe, request on NATS, including JetStream publish.
 - Read and write JetStream KV buckets.
@@ -52,7 +52,6 @@ Verbs `ls / get / create / update / delete / edit` are derived from a single dec
 | `location-type` | `location_types` | yes | `code` | full |
 | `thing-type` | `thing_types` | yes | `code` | full |
 | `thing-type-operation` | `thing_type_operations` | yes | `name` | full |
-| `message-schema` | `message_schemas` | yes | `name` | full |
 | `organization` | `organizations` | no | `name` | full |
 | `membership` | `memberships` | no | — (id only) | full |
 | `invite` | `invites` | yes | `email` | full |
@@ -78,7 +77,7 @@ Verbs `ls / get / create / update / delete / edit` are derived from a single dec
 |---|---|---|
 | string, int, bool | `--name foo`, `--validity-years 5`, `--active` / `--active=false` | |
 | select | `--capability publish` | validated against a whitelist |
-| multiselect | `--capabilities publish,subscribe` | comma-separated |
+| multiselect | `--synced-collections things,locations` | comma-separated |
 | relation (id) | `--type abc123def456ghi` | **15-char PocketBase id only** — natural keys resolve on positional args, never on relation flags |
 | relation list (ids) | `--operations id1,id2` or repeated flag | |
 | JSON | `--metadata '{"k":"v"}'`, `--metadata @file.json`, `--metadata -` | inline, file, or stdin |
@@ -110,7 +109,7 @@ stone apply path/to/dir path/to/file.yaml   # restrict to specific paths
 Properties:
 
 - **Idempotent.** Records with an `id` are PATCHed; records without are POSTed and the returned id is written back into the file.
-- **Friendly filenames.** Files are named by the entity's lookup key (message-schemas: `namespace__name__version`; fallback `name`, then id). Filename collisions get a `-<id>` suffix, and pulls are sorted by id so the suffix lands on the same record across runs. Filenames are cosmetic — `apply` keys on the `id` field inside each file.
+- **Friendly filenames.** Files are named by the entity's lookup key, falling back to `name`, then id. Filename collisions get a `-<id>` suffix, and pulls are sorted by id so the suffix lands on the same record across runs. Filenames are cosmetic — `apply` keys on the `id` field inside each file.
 - **No deletes.** Records present on the server but absent locally are left alone. For deletion, use `stone <type> delete <id|key>` or the web UI.
 - **Org-scoped auto-fill.** On create, the current organization is injected into org-scoped records that don't already have one.
 - **Server-managed fields ignored.** `collectionId`, `collectionName`, `created`, `updated` are stripped on pull and ignored on apply.

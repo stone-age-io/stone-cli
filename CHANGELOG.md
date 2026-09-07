@@ -10,6 +10,42 @@ that period, and this file starts where the versioned releases do.
 
 ## [Unreleased]
 
+### Removed
+
+- **The `message-schema` entity, and the fields that pointed at it.** The
+  platform dropped its `message_schemas` collection along with
+  `thing_types.capabilities`, `thing_types.nats_role` and
+  `thing_type_operations.schema`; nothing validated a payload against a stored
+  schema at either end, and `nats_role` was a bridge to runtime NATS
+  permissions that was never wired up. Gone here too: `stone message-schema`,
+  `--capabilities` and `--nats-role` on `thing-type`, `--schema` on
+  `thing-type-operation`, and `message_schemas` as a `--synced-collections`
+  choice. **These flags did not fail before — PocketBase discards a write to a
+  field a collection does not have, so they reported success and did nothing.**
+  Per-operation `--capability` is unaffected and remains the place a capability
+  is declared.
+
+### Added
+
+- **`--code` on `organization`,** and `code` in its `ls` columns. The one
+  globally unique identifier in the ecosystem: derived from the name when
+  omitted, immutable once set, and baked into signed NATS account JWTs and
+  printed labels — so an operator needs to be able to read it back. This had
+  been missing since the platform added the field; the drift guard below is
+  what found it.
+
+### Fixed
+
+- **Refreshed the vendored platform schema** (`cmd/testdata/schema.json`), which
+  is what the drift tests check the field table against. It was three platform
+  changes behind. Worth recording that the guard did its job unprompted: told
+  only to refresh the fixture, it named all four removed fields, the collection
+  that no longer exists, and the one field the CLI had never caught up to.
+
+- **A stale comment on `--managed`** said the helpdesk export is remapped to
+  carry the org **id**. It has carried the org **code** since the platform's
+  ADR 0002.
+
 ## [0.2.0] - 2026-08-25
 
 NATS was broken on Windows and macOS, in two ways that hid each other. If you

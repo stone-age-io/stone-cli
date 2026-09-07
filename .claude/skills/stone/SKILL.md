@@ -1,6 +1,6 @@
 ---
 name: stone
-description: Use when the user wants to interact with the Stone Age IoT Platform via the `stone` CLI — managing tenant resources (things, locations, thing-types, message schemas, memberships, NATS users/roles, Nebula hosts), applying declarative YAML workspaces (pull/apply GitOps), publishing/subscribing on the platform's NATS, or reading/writing JetStream KV. Triggers on commands starting with `stone`, requests like "create a thing", "switch org", "pull the workspace", "publish to NATS on the platform".
+description: Use when the user wants to interact with the Stone Age IoT Platform via the `stone` CLI — managing tenant resources (things, locations, thing-types, memberships, NATS users/roles, Nebula hosts), applying declarative YAML workspaces (pull/apply GitOps), publishing/subscribing on the platform's NATS, or reading/writing JetStream KV. Triggers on commands starting with `stone`, requests like "create a thing", "switch org", "pull the workspace", "publish to NATS on the platform".
 ---
 
 # stone CLI skill
@@ -62,7 +62,7 @@ Verbs `ls / get / create / update / delete / edit` are synthesized from a single
 
 | Entity | Org-scoped | Verbs |
 |---|---|---|
-| `thing`, `location`, `location-type`, `thing-type`, `thing-type-operation`, `message-schema` | yes | full |
+| `thing`, `location`, `location-type`, `thing-type`, `thing-type-operation` | yes | full |
 | `leaf-node` | yes | full |
 | `invite` | yes | full |
 | `nats-user`, `nats-role`, `nats-import`, `nats-export` | yes | full |
@@ -100,7 +100,7 @@ stone thing ls --fields code,name -o json
   - inline JSON: `--metadata '{"k":"v"}'`
   - file: `--metadata @./meta.json`
   - stdin: `--metadata -`
-- **Selects/multiselects** (e.g. `--capabilities publish,subscribe`) are validated against a whitelist; the CLI prints the choices in `--help`.
+- **Selects/multiselects** (e.g. `--capability publish`, `--synced-collections things,locations`) are validated against a whitelist; the CLI prints the choices in `--help`.
 
 ### Auth collections (`thing`, `nats-user`, `nebula-host`, `leaf-node`)
 
@@ -118,7 +118,7 @@ On `create` you must pass exactly one of:
 ```sh
 stone location create --name "HQ" --code hq -o json
 stone thing-type create --name "Temp Sensor" --code temp \
-    --subject-prefix telemetry.sensors --capabilities publish,subscribe -o json
+    --subject-prefix telemetry.sensors -o json
 
 # Explicit password
 stone thing create --email s42@example.com --password 'changeMe123!' \
@@ -148,7 +148,7 @@ Important semantics:
 - `apply` **does not delete** records that exist on the server but are absent locally. Use `stone <type> delete <id|key>` for that.
 - Org-scoped records get `organization` auto-injected on create if missing — relies on the current org being set.
 - Server-managed fields (`collectionId`, `collectionName`, `created`, `updated`) are stripped by `pull` and ignored by `apply`.
-- Filenames are the entity's lookup key (message-schemas: `namespace__name__version`; fallback `name`, then id), with a `-<id>` suffix on collisions. They are cosmetic — `apply` identifies records solely by the `id` field inside each file, so renaming files is safe.
+- Filenames are the entity's lookup key, falling back to `name`, then id, with a `-<id>` suffix on collisions. They are cosmetic — `apply` identifies records solely by the `id` field inside each file, so renaming files is safe.
 
 ## NATS / JetStream
 

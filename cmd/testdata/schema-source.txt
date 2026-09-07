@@ -3,9 +3,11 @@ field table against it. This file is DATA, not the source of truth -- the source
 is the platform repo.
 
 source:   https://github.com/stone-age-io/platform/blob/main/schema.json
-platform: v0.2.0 (repo at bc28ab4)
-schema.json last changed in platform commit: a4e08b8
-copied:   2026-08-22
+platform: repo at 8cf37fe
+schema.json last changed in platform commit: fe2fe81, which dropped the
+          message_schemas collection, thing_types.capabilities,
+          thing_types.nats_role and thing_type_operations.schema
+copied:   2026-09-07
 
 Refresh with:
   cp ../platform/schema.json cmd/testdata/schema.json

@@ -141,15 +141,12 @@ func runPull(cmd *cobra.Command, args []string) error {
 }
 
 func recordFilename(spec EntitySpec, r pb.Record) string {
-	// message_schemas have a composite identity; their LookupKey ("name")
-	// repeats across versions, so the composite must win.
-	if ns, _ := r["namespace"].(string); ns != "" {
-		if nm, _ := r["name"].(string); nm != "" {
-			if v, _ := r["version"].(string); v != "" {
-				return sanitizeFilename(ns + "__" + nm + "__" + v)
-			}
-		}
-	}
+	// No collection the CLI pulls has a composite natural key any more. There
+	// was a namespace__name__version branch here for message_schemas, whose
+	// LookupKey ("name") repeated across versions; that collection is gone, and
+	// a speculative branch for the next one would be untested code guessing at
+	// field names. Filenames are cosmetic anyway -- apply keys on the id inside
+	// each file -- so the collision suffix is a sufficient backstop.
 	if spec.LookupKey != "" {
 		if k, _ := r[spec.LookupKey].(string); k != "" {
 			return sanitizeFilename(k)

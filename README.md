@@ -47,7 +47,7 @@ tar xzf stone_${VERSION}_linux_amd64.tar.gz     # unpacks ./stone, LICENSE, READ
 # 5) Create resources with typed flags
 ./stone location create --name "HQ" --code hq
 ./stone thing-type create --name "Temp Sensor" --code temp-sensor \
-    --subject-prefix "telemetry.sensors" --capabilities publish
+    --subject-prefix "telemetry.sensors"
 ./stone thing create --email s42@example.com --code sensor-42 \
     --type <thing_type_id> --random-password        # password printed to stderr
 ./stone thing get sensor-42 --fields code,name,location   # read back by code or id
@@ -167,8 +167,7 @@ one you expected, your `nats_context` points at the wrong context. Otherwise:
 
 `stone pull` writes one YAML file per record into `<workspace>/<collection>/`,
 named by the record's natural key — the same keys CRUD lookup uses (`code`,
-`name`, `hostname`, …; message-schemas use `namespace__name__version`), falling
-back to `name`, then id. Filename collisions get a `-<id>` suffix. Filenames
+`name`, `hostname`, …), falling back to `name`, then id. Filename collisions get a `-<id>` suffix. Filenames
 are cosmetic: `apply` identifies records solely by the `id` field inside each
 file. Org-scoped collections are filtered to the current organization.
 
@@ -191,7 +190,7 @@ apply wins, field by field, silently. If a workspace is shared, `pull` before
 
 Full CRUD (`ls / get / create / update / delete / edit`):
 
-- Domain: `thing`, `location`, `location-type`, `thing-type`, `thing-type-operation`, `message-schema`
+- Domain: `thing`, `location`, `location-type`, `thing-type`, `thing-type-operation`
 - Edge: `leaf-node`
 - Admin: `organization`, `membership`, `invite`
 - NATS: `nats-user`, `nats-role`, `nats-import`, `nats-export`

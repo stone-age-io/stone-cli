@@ -179,16 +179,14 @@ var entitySpecs = []EntitySpec{
 		Plural:     "thing-types",
 		Collection: "thing_types",
 		OrgScoped:  true,
-		KeyColumns: []string{"code", "name", "capabilities", "subject_prefix"},
+		KeyColumns: []string{"code", "name", "subject_prefix"},
 		LookupKey:  "code",
 		Fields: []Field{
 			{Name: "name", Type: FString, Help: "display name"},
 			{Name: "code", Type: FString, Help: "stable short code"},
 			{Name: "description", Type: FString, Help: "free-form description"},
-			{Name: "capabilities", Type: FMSelect, Values: []string{"publish", "subscribe", "request", "reply"}, Help: "NATS capabilities this type uses"},
 			{Name: "subject_prefix", Type: FString, Help: "subject prefix template"},
 			{Name: "operations", Type: FIDs, Help: "thing_type_operations ids (comma-separated or repeat flag)"},
-			{Name: "nats_role", Type: FID, Help: "nats_roles id: turns this type's operations into runtime NATS permissions"},
 			{Name: "metadata_schema", Type: FJSON, Help: "JSON Schema that validates things.metadata for this type (inline JSON, @file, or -)"},
 		},
 	},
@@ -197,29 +195,12 @@ var entitySpecs = []EntitySpec{
 		Plural:     "thing-type-operations",
 		Collection: "thing_type_operations",
 		OrgScoped:  true,
-		KeyColumns: []string{"name", "capability", "subject_suffix", "schema"},
+		KeyColumns: []string{"name", "capability", "subject_suffix"},
 		LookupKey:  "name",
 		Fields: []Field{
 			{Name: "name", Type: FString, Required: true, Help: "operation name (lowercase letters, digits, underscore)"},
 			{Name: "capability", Type: FSelect, Values: []string{"publish", "subscribe", "request", "reply"}, Required: true, Help: "NATS capability"},
 			{Name: "subject_suffix", Type: FString, Required: true, Help: "subject suffix appended to subject_prefix"},
-			{Name: "description", Type: FString, Help: "free-form description"},
-			{Name: "schema", Type: FID, Help: "message_schemas id"},
-		},
-	},
-	{
-		Name:       "message-schema",
-		Plural:     "message-schemas",
-		Collection: "message_schemas",
-		OrgScoped:  true,
-		KeyColumns: []string{"namespace", "name", "version", "format"},
-		LookupKey:  "name",
-		Fields: []Field{
-			{Name: "namespace", Type: FString, Required: true, Help: "schema namespace (lowercase letters, digits, underscore)"},
-			{Name: "name", Type: FString, Required: true, Help: "schema name"},
-			{Name: "version", Type: FString, Required: true, Help: "semver: MAJOR.MINOR.PATCH"},
-			{Name: "format", Type: FSelect, Values: []string{"json_schema"}, Required: true, Help: "schema format"},
-			{Name: "schema", Type: FJSON, Required: true, Help: "the schema document (inline JSON, @file, or -)"},
 			{Name: "description", Type: FString, Help: "free-form description"},
 		},
 	},
@@ -228,17 +209,33 @@ var entitySpecs = []EntitySpec{
 		Plural:     "organizations",
 		Collection: "organizations",
 		OrgScoped:  false,
-		KeyColumns: []string{"name", "active", "owner"},
+		KeyColumns: []string{"name", "code", "active", "owner"},
 		LookupKey:  "name",
 		Fields: []Field{
 			{Name: "name", Type: FString, Required: true, Help: "organization name (must be unique)"},
+			// The one GLOBALLY unique identifier in the ecosystem, and the root
+			// every other code hangs off -- a thing's code is unique only within
+			// its org. Derived from the name on create when omitted; the platform
+			// REFUSES a collision rather than inventing a suffix, because an
+			// auto-made "acme-2" would reach printed labels and signed account
+			// JWTs before anyone noticed it was the wrong tenant.
+			//
+			// Exposed on update like every other immutable code in this table
+			// (things, locations, both type collections, leaf nodes): the freeze
+			// is a platform rule, so the server answers for it rather than the
+			// CLI carrying a create-only concept no other field would use. It
+			// is a KeyColumn because an operator needs to READ it -- it is baked
+			// into signed JWTs and printed on stickers, so a wrong one is a site
+			// visit.
+			{Name: "code", Type: FString, Help: "globally unique short code; derived from the name when omitted (IMMUTABLE once set)"},
 			{Name: "description", Type: FString, Help: "free-form description"},
 			{Name: "active", Type: FBool, Help: "whether the organization is active"},
 			{Name: "owner", Type: FID, Required: true, Help: "owning users id"},
 			// Flipping this provisions a stream export of the managed subject
 			// subtree from the org's NATS account into the operator hub account,
-			// remapped to carry the org id. Operator-only, like the rest of this
-			// collection -- organizations.updateRule admits no tenant role.
+			// remapped to carry the org CODE (it was the id until ADR 0002).
+			// Operator-only, like the rest of this collection --
+			// organizations.updateRule admits no tenant role.
 			{Name: "managed", Type: FBool, Help: "MSP-managed: provisions the helpdesk stream export to the operator hub (operator-only)"},
 		},
 	},
@@ -482,7 +479,7 @@ var entitySpecs = []EntitySpec{
 			{Name: "code", Type: FString, Help: "site slug; derives the NATS username and JetStream domain (immutable after creation)"},
 			{Name: "description", Type: FString, Help: "free-form description"},
 			{Name: "domain", Type: FString, Help: "local JetStream domain, e.g. edge-<code> (usually derived from code)"},
-			{Name: "synced_collections", Type: FMSelect, Values: []string{"things", "locations", "thing_types", "location_types", "thing_type_operations", "message_schemas"}, Help: "collections this site mirrors; subset of the sync allowlist (comma-separated)"},
+			{Name: "synced_collections", Type: FMSelect, Values: []string{"things", "locations", "thing_types", "location_types", "thing_type_operations"}, Help: "collections this site mirrors; subset of the sync allowlist (comma-separated)"},
 			{Name: "location", Type: FID, Help: "locations id (optional site context)"},
 			{Name: "metadata", Type: FJSON, Help: "arbitrary JSON metadata"},
 			{Name: "nats_user", Type: FID, Help: "nats_users id (auto-provisioned by a server-side hook on create)"},
