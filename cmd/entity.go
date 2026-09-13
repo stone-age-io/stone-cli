@@ -421,7 +421,7 @@ var entitySpecs = []EntitySpec{
 		Plural:     "nebula-hosts",
 		Collection: "nebula_hosts",
 		OrgScoped:  true,
-		KeyColumns: []string{"hostname", "overlay_ip", "network_id", "is_lighthouse", "active"},
+		KeyColumns: []string{"hostname", "overlay_ip", "network_id", "is_lighthouse", "is_relay", "active"},
 		LookupKey:  "hostname",
 		Fields: []Field{
 			{Name: "email", Type: FString, Required: true, Help: "auth email (required by the auth collection)"},
@@ -431,11 +431,34 @@ var entitySpecs = []EntitySpec{
 			{Name: "network_id", Type: FID, Required: true, Help: "nebula_networks id"},
 			{Name: "groups", Type: FJSON, Help: "Nebula firewall groups (JSON array)"},
 			{Name: "is_lighthouse", Type: FBool, Help: "whether this host is a lighthouse"},
-			{Name: "public_host_port", Type: FString, Help: "public address:port (for lighthouses / static peers)"},
+			{Name: "is_relay", Type: FBool, Help: "forward traffic for peers that cannot reach each other directly (needs --public-host-port)"},
+			{Name: "public_host_port", Type: FString, Help: "public address:port; required for a lighthouse AND for a relay"},
 			{Name: "firewall_outbound", Type: FJSON, Help: "outbound firewall rules (JSON)"},
 			{Name: "firewall_inbound", Type: FJSON, Help: "inbound firewall rules (JSON)"},
+
+			// Gateway routing: two halves on two DIFFERENT hosts, and neither
+			// derives the other. unsafe_networks is signed INTO the gateway's
+			// certificate -- Nebula authorizes routing on the certificate, not
+			// on config -- so setting it re-issues, and the change is inert
+			// until that host picks the new certificate up.
+			{Name: "unsafe_networks", Type: FJSON, Help: `subnets THIS host routes to, e.g. ["192.168.1.0/24"] (signed into the certificate)`},
+			{Name: "unsafe_routes", Type: FJSON, Help: `subnets reached THROUGH another host, e.g. [{"route":"192.168.1.0/24","via":"10.0.0.7"}]`},
+
+			// Underlay, not overlay -- which is why IPv6 is accepted here and
+			// nowhere else in the platform.
+			{Name: "preferred_ranges", Type: FJSON, Help: `underlay prefixes to favour when a peer has several addresses, e.g. ["192.168.1.0/24"]`},
+
+			{Name: "mtu", Type: FInt, Help: "MTU override; 0 inherits the default"},
+			{Name: "tun_device", Type: FString, Help: "tun interface name override; empty inherits the default"},
+
 			{Name: "validity_years", Type: FInt, Help: "certificate validity in years"},
-			{Name: "active", Type: FBool, Help: "whether the host is active"},
+			{Name: "active", Type: FBool, Help: "whether the host is active; clearing it BLOCKLISTS the certificate across the CA"},
+
+			// An action field, not state: pb-nebula re-issues on the false ->
+			// true edge and resets it in the same save, so it never reads back.
+			// Exposed because it is the fix for a host whose certificate no
+			// longer matches its network -- see `stone nebula cert-audit`.
+			{Name: "renew", Type: FBool, Help: "re-issue this host's certificate now (resets itself; redeploy the config afterwards)"},
 		},
 	},
 	{
@@ -450,11 +473,20 @@ var entitySpecs = []EntitySpec{
 			{Name: "name", Type: FString, Help: "CA name"},
 			{Name: "validity_years", Type: FInt, Help: "CA cert validity in years (operator-only)"},
 			{Name: "curve", Type: FString, Help: "elliptic curve, e.g. P256 (operator-only)"},
-			// There is no `rotate_keys` here on purpose: nebula_ca has no such
-			// field, in schema.json or in pb-nebula. The flag used to exist and
-			// did nothing at all -- PocketBase silently drops writes to fields a
-			// collection does not have, so it reported success every time.
-			// Rolling a CA is a platform-operator operation, not a tenant one.
+
+			// There is still no `rotate_keys` here, and there never was a field
+			// by that name -- the flag that used to exist did nothing at all,
+			// because PocketBase silently drops writes to fields a collection
+			// does not have and so reported success every time.
+			//
+			// pb-nebula v0.3.0 DID add a real rotation trigger, `rotate`. It is
+			// deliberately not a flag either, for the reason the nats-account
+			// key triggers are not: nebula_ca.updateRule is operator-only, so a
+			// tenant PATCH 404s, and the three steps live behind
+			// `stone nebula ca-rotate` instead. The same goes for the material
+			// rotation produces -- next_certificate, previous_certificate,
+			// rotated_at -- which is server-generated and readable via `get`.
+			// routeOnlyFields in schema_drift_test.go is what holds that line.
 		},
 	},
 

@@ -67,7 +67,7 @@ Verbs `ls / get / create / update / delete / edit` are synthesized from a single
 | `invite` | yes | full |
 | `nats-user`, `nats-role`, `nats-import`, `nats-export` | yes | full |
 | `nebula-network`, `nebula-host` | yes | full |
-| `nats-account`, `nebula-ca` | yes | `ls / get / update / edit` only |
+| `nats-account`, `nebula-ca` | yes | `ls / get / update / edit` only (and every field is operator-only in practice — see Nebula overlay / `stone nats account-keys`) |
 | `membership` | no (org relation present, but not auto-filtered) | full |
 | `organization` | no (gated server-side by `is_operator`) | full |
 
@@ -180,6 +180,20 @@ stone nats sync-context        # re-issue per-org creds after key rotation
 
 `stone` does **not** manage JetStream consumers — use the `nats` CLI for that.
 
+## Nebula overlay
+
+Records are ordinary entities. Two operations are routes, under `stone nebula`:
+
+```sh
+stone nebula cert-audit                        # hosts whose certificate no longer matches their network
+stone nebula ca-rotate prepare|commit|finish   # roll the org's CA, one step at a time
+```
+
+- **Never run the three rotation steps back to back.** Nebula verification is mutual and hosts pull their config on their own schedule, so `commit` is only safe once *every* host has fetched what `prepare` published. Running them together is the single write the three-step design exists to avoid, and it splits the mesh until propagation catches up. `prepare` is reversible; `commit` re-signs every active host; `finish` drops the outgoing CA and is refused (by name) while any active host still holds one.
+- **`cert-audit` finds hosts that look completely healthy and reach nothing** — active, in date, certificate present, config rendered. pb-nebula signed certificates at `/32` until v0.3.0, and Nebula builds the host's overlay route from the certificate's network. Fix one at a time with `stone nebula-host update <hostname> --renew`, redeploying each config; never script a sweep, because re-signing moves a fingerprint and the revocation blocklist matches on fingerprints.
+- **`--active=false` on a `nebula-host` revokes it across the whole CA**, not just its own network, and takes effect when each *peer's* config is redeployed. Deactivate to revoke — deleting the record leaves the certificate trusted until expiry.
+- **`--is-relay` requires `--public-host-port`.** `--unsafe-networks` (on the gateway, signed into its certificate) and `--unsafe-routes` (on each consumer, `via` the gateway's overlay IP) are two halves on two different hosts; setting one alone moves no traffic.
+
 ## Common failure modes and how to react
 
 - **`not authenticated. run: stone auth login`** — auth token is missing or expired. Surface to user; they run `stone auth login`.
@@ -189,6 +203,8 @@ stone nats sync-context        # re-issue per-org creds after key rotation
 - **`nats-sync: skipped — no membership found for this user+org`** — the authenticated user is an operator on an org they aren't a member of; NATS creds are per-membership. Not a bug.
 - **HTTP 400 from PocketBase on a relation field** — likely passed something that isn't a 15-char id. Re-look it up with `get <key> --fields id -o json` or `ls -o json`.
 - **`multiple <plural> match <key> "..."`** — the natural key is ambiguous in this org. Use one of the 15-char ids listed in the error.
+- **`Invalid CA rotation: ...`** — the rotation steps were run out of order, or `finish` was attempted while a host named in the message still holds an outgoing-CA certificate. Read the message; it says which. There is no force flag.
+- **HTTP 404 updating `nebula-ca` or `nats-account`** — both are operator-only for every field. The tenant operations are `stone nebula ca-rotate` and `stone nats account-keys`.
 
 ## Things not to do
 
@@ -197,3 +213,5 @@ stone nats sync-context        # re-issue per-org creds after key rotation
 - Don't run `stone apply` against a workspace you didn't `pull` from or hand-author with knowledge of the schema — apply will dutifully create records.
 - Don't expect `apply` to delete things. It only creates and updates.
 - Don't bypass `stone org switch` by editing `context.yaml` directly — you'll skip the per-org NATS creds sync.
+- Don't script a `--renew` sweep across every host `cert-audit` reports. Each re-issue moves a fingerprint and rewrites every peer's config; do them one at a time, redeploying as you go.
+- Don't look for a `--rotate` flag on `nebula-ca`. The field exists but the collection's update rule is operator-only, so a tenant PATCH 404s; `stone nebula ca-rotate` is the way in.
