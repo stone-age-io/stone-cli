@@ -277,6 +277,29 @@ func (c *Client) CallRoute(path string, body any, out any) error {
 	return json.NewDecoder(resp.Body).Decode(out)
 }
 
+// GetRoute is CallRoute for the platform's read-only routes.
+//
+// Separate rather than a method parameter on CallRoute: every caller of that one
+// is performing an action, and its doc comment is about why those actions are
+// routes at all. A read is there for a different reason -- the platform's
+// certificate audit has to parse a Nebula certificate to answer, which no
+// client can do -- and collapsing the two would put an unused body argument in
+// front of every read.
+func (c *Client) GetRoute(path string, out any) error {
+	resp, err := c.do(http.MethodGet, path, nil, true)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if err := checkOK(resp); err != nil {
+		return err
+	}
+	if out == nil {
+		return nil
+	}
+	return json.NewDecoder(resp.Body).Decode(out)
+}
+
 // BatchOp is one operation in a /api/batch request.
 type BatchOp struct {
 	Method string         `json:"method"` // "POST" | "PATCH" | "DELETE"
@@ -406,17 +429,33 @@ func (c *Client) do(method, path string, body io.Reader, needAuth bool) (*http.R
 }
 
 // PBError is the standard error shape PocketBase returns.
+//
+// The status arrives as `status`, not `code` -- PocketBase's ApiError marshals
+// it under that name, and has for every version this CLI has talked to. Reading
+// only `code` meant the number in every error message the CLI has ever printed
+// was 0, including on the ones where it matters most: a 404 from an update rule
+// and a 400 from a validator read identically. Both names are accepted now, and
+// checkOK fills in the HTTP status if a server sends neither.
 type PBError struct {
 	Code    int            `json:"code"`
+	Status  int            `json:"status"`
 	Message string         `json:"message"`
 	Data    map[string]any `json:"data"`
 }
 
+// status is whichever the server actually sent.
+func (e *PBError) status() int {
+	if e.Status != 0 {
+		return e.Status
+	}
+	return e.Code
+}
+
 func (e *PBError) Error() string {
 	if len(e.Data) > 0 {
-		return fmt.Sprintf("%s (%d): %s", e.Message, e.Code, formatPBData(e.Data))
+		return fmt.Sprintf("%s (%d): %s", e.Message, e.status(), formatPBData(e.Data))
 	}
-	return fmt.Sprintf("%s (%d)", e.Message, e.Code)
+	return fmt.Sprintf("%s (%d)", e.Message, e.status())
 }
 
 func formatPBData(d map[string]any) string {
@@ -434,6 +473,9 @@ func checkOK(resp *http.Response) error {
 	b, _ := io.ReadAll(resp.Body)
 	var pe PBError
 	if err := json.Unmarshal(b, &pe); err == nil && pe.Message != "" {
+		if pe.status() == 0 {
+			pe.Status = resp.StatusCode
+		}
 		return &pe
 	}
 	if len(b) == 0 {

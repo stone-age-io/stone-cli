@@ -73,6 +73,13 @@ intentional — do not "fix" them:
 - **`nebula-ca.rotate_keys`** — no such field exists, in `schema.json` or in
   pb-nebula. It was a flag once and did nothing: PocketBase silently drops
   writes to fields a collection doesn't have, so it reported success every time.
+- **`nebula-ca.rotate`** — this one is real (pb-nebula v0.3.0), and is still not
+  a flag: `nebula_ca.updateRule` is operator-only, so a tenant PATCH 404s. The
+  three steps live behind `stone nebula ca-rotate`. Same for the material a
+  rotation produces — `next_certificate`, `previous_certificate`, `rotated_at`.
+  `routeOnlyFields` in `cmd/schema_drift_test.go` is what stops any of them
+  becoming a flag later; it covers the `nats_accounts` triggers too, which were
+  previously only prose.
 - **`nats-account.rotate_keys` / `add_signing_key` / `remove_signing_key`** —
   the fields exist, but `nats_accounts.updateRule` is operator-only, so a tenant
   PATCH 404s. They live behind `stone nats account-keys` instead.
@@ -89,12 +96,41 @@ platform repo is normally at `../platform`.
 
 ### Custom platform routes
 
-`internal/pb/client.go` has `CallRoute` for the platform's non-collection
-endpoints, and `cmd/creds.go` wraps the two that exist:
-`POST /api/me/nats-creds/rotate` and `POST /api/org/nats-account/keys`. Both
-exist server-side because an API rule cannot express a single-field allowlist.
-Neither takes a record id — the target is derived from the caller's identity or
+`internal/pb/client.go` has `CallRoute` (POST) and `GetRoute` (GET) for the
+platform's non-collection endpoints. Four are wrapped:
+
+- `cmd/creds.go` — `POST /api/me/nats-creds/rotate` and
+  `POST /api/org/nats-account/keys`.
+- `cmd/nebula.go` — `POST /api/org/nebula-ca/rotate` and
+  `GET /api/org/nebula/cert-audit`.
+
+Three of the four exist because an API rule cannot express a single-field
+allowlist: permitting one trigger field through an update rule means a deny-list
+over every other, which silently opens the moment someone adds a field. None of
+them takes a record id — the target is derived from the caller's identity or
 active organization — so don't add one.
+
+`cert-audit` is the exception and exists for a different reason: deciding whether
+a host certificate still matches its network means parsing a Nebula certificate,
+which no client can do. It answers in **ids**, and `cmd/nebula.go` resolves them
+to hostnames before printing — falling back to the bare id rather than dropping
+the row, because a host we cannot name is still a host that needs re-signing.
+
+### pb-nebula v0.3 and the library-owned fields
+
+pb-nebula v0.3.0 added twelve fields the platform's `schema.json` does not
+declare — the dump predates the release. Unlike the pb-nats case noted in
+`cmd/schema_drift_test.go`, pb-nebula **migrates** them (`addMissingFields`), so
+a database created earlier acquires them on the next start rather than never.
+They are listed in `libraryOwnedFields` so the drift guard can see them.
+
+**The floor is pb-nebula v0.3.0** (the platform pins v0.3.2). Against v0.2.0 the
+two Nebula routes 404, and `--is-relay`, `--unsafe-networks`, `--unsafe-routes`,
+`--preferred-ranges`, `--mtu`, `--tun-device` and `--renew` all name fields the
+collection does not have — so the write is discarded and the command reports
+success. That is precisely the failure the drift guard exists to make loud, and
+it cannot catch this one, because the vendored schema is a copy of a file that
+never declared them either.
 
 ### Pull / apply (GitOps)
 `cmd/sync.go`:

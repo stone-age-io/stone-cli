@@ -322,6 +322,56 @@ All KV operations — bucket lifecycle and per-key data — live under `stone kv
 ./stone kv watch twins
 ```
 
+## Nebula
+
+The records are ordinary entities — `stone nebula-ca`, `stone nebula-network`,
+`stone nebula-host`. Two operations are not record writes, and live under
+`stone nebula`:
+
+```sh
+stone nebula cert-audit                 # hosts whose certificate no longer matches their network
+stone nebula ca-rotate prepare          # publish trust in a new CA (reversible)
+stone nebula ca-rotate commit           # switch issuance, re-sign every active host
+stone nebula ca-rotate finish           # drop the outgoing CA
+```
+
+**`ca-rotate` takes three steps and the wait between them is the point.** Nebula
+verification is mutual — each peer checks the other against its *own* local CA
+pool, with no chain and no fallback — and hosts pull their config whenever they
+like. So one write carrying both the new trust bundle and the new certificate
+splits the mesh: a host that has fetched presents a new-CA certificate to one
+that has not, and the handshake fails in *both* directions until propagation
+finishes. `prepare` publishes trust and moves no issuance, so it is fully
+reversible. `commit` switches issuance and re-signs every active host, with both
+CAs trusted throughout. `finish` drops the outgoing CA and is refused while any
+active host still holds a certificate signed by it — the refusal names the host.
+
+A CA cannot be renewed, only rotated, so start months ahead of the expiry in
+`stone nebula-ca ls`, not weeks.
+
+**`cert-audit` answers a question no client can.** pb-nebula signed host
+certificates at `/32` until v0.3.0. Nebula puts a certificate's network straight
+onto the tun device and installs a link route for it, so the mask in the
+certificate *is* the host's route to the overlay — a `/32` gives a host a route
+covering only itself. The certificate verifies, the config renders, the host
+starts, the handshake completes, and no packet crosses the mesh. Nothing errors,
+which is why you have to ask. Editing a host's `overlay_ip` after issue lands it
+here too.
+
+Nothing is re-signed automatically: re-signing moves a fingerprint, and a
+fingerprint is what the revocation blocklist matches, so a sweep would rewrite
+every peer config in the mesh. Fix one host at a time, redeploying as you go:
+
+```sh
+stone nebula-host update edge-west --renew
+```
+
+Requires a platform on **pb-nebula v0.3.0 or newer**. Against v0.2.0 the routes
+404 and the newer host flags — `--is-relay`, `--unsafe-networks`,
+`--unsafe-routes`, `--preferred-ranges`, `--mtu`, `--tun-device`, `--renew` —
+name fields the collection does not have, so PocketBase discards the write and
+the command reports success.
+
 ## Limitations
 
 - Relation flags (`--type`, `--location`, …) take 15-char PocketBase ids only —
@@ -332,9 +382,8 @@ All KV operations — bucket lifecycle and per-key data — live under `stone kv
 - No JetStream consumer management — the `nats` CLI is better at that.
 - `nats-account` and `nebula-ca` are **operator-only for every field**. Both
   `updateRule`s admit no tenant role, so an owner/admin PATCH of any field on
-  either collection returns 404. The three legitimate tenant key operations live
-  behind `stone nats account-keys` instead. `nebula_ca` has no rotation trigger
-  at all — rolling a CA is an operator action.
+  either collection returns 404. The legitimate tenant operations live behind
+  routes instead: `stone nats account-keys` and `stone nebula ca-rotate`.
 - Locations' `floorplan` and organizations' `logo` are file fields; the CLI has
   no upload path for them. Use the console.
 

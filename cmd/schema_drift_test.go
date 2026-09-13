@@ -100,8 +100,78 @@ var deliberatelyOmitted = map[string][]string{
 // either. This is the same shape as the system_account_id bug the platform fixed
 // in v0.2.0. Flagged upstream; the CLI's flags are correct against a current
 // database.
+//
+// pb-nebula v0.3.0 is the other case, and it behaves BETTER than the one above.
+// It added twelve fields across nebula_hosts and nebula_ca, and unlike pb-nats
+// it migrates them: InitializeCollections adds any declared field an existing
+// collection is missing (addMissingFields), so a database created before v0.3.0
+// acquires them on the next start rather than never. The platform's schema.json
+// still does not declare them -- it is a dump that predates the release, and
+// hand-copying a library's field definitions into it is the drift risk the
+// platform's own CLAUDE.md warns about -- so they are listed here instead.
+//
+// The floor is pb-nebula v0.3.0 (the platform pins v0.3.2). Against v0.2.0 every
+// flag below is a silent no-op, which is the failure this whole file exists to
+// make loud.
 var libraryOwnedFields = map[string][]string{
 	"nats_roles": {"allow_response", "allow_response_max", "allow_response_ttl"},
+
+	// Exposed as flags: the relay role, the two halves of gateway routing,
+	// underlay path preference, the transport overrides, and the renew trigger.
+	"nebula_hosts": {
+		"is_relay",
+		"unsafe_networks", "unsafe_routes",
+		"preferred_ranges",
+		"mtu", "tun_device",
+		"renew",
+	},
+}
+
+// routeOnlyFields are fields that DO exist on a live collection and must never
+// become CLI flags, because the collection's updateRule does not let a tenant
+// write them -- the operation lives behind a platform route instead.
+//
+// This is a different failure from the one the two tests above catch, and
+// neither of them would see it. A flag here would name a real field, so the
+// "collection has no such field" check passes; the write simply 404s at the rule
+// layer, on a command that looks exactly like every other update.
+//
+// It is also the hole that let `nebula-ca --rotate-keys` exist: that flag named
+// a field that never existed anywhere, but the same flag naming a field that
+// exists-and-is-forbidden would have been just as broken and even quieter.
+var routeOnlyFields = map[string]map[string]string{
+	"nebula_ca": {
+		"rotate": "nebula_ca.updateRule is operator-only; use `stone nebula ca-rotate`",
+		// The material a rotation produces. Server-generated, readable via
+		// `get`, never typed in.
+		"next_certificate":     "server-generated during rotation",
+		"next_private_key":     "server-generated during rotation, and hidden from the API",
+		"previous_certificate": "server-generated during rotation",
+		"rotated_at":           "server-generated during rotation",
+	},
+	"nats_accounts": {
+		"rotate_keys":        "nats_accounts.updateRule is operator-only; use `stone nats account-keys rotate`",
+		"add_signing_key":    "operator-only rule; use `stone nats account-keys add-signing`",
+		"remove_signing_key": "operator-only rule; use `stone nats account-keys remove-signing`",
+	},
+}
+
+func TestRouteOnlyFieldsAreNotFlags(t *testing.T) {
+	for _, spec := range entitySpecs {
+		forbidden, ok := routeOnlyFields[spec.Collection]
+		if !ok {
+			continue
+		}
+		t.Run(spec.Name, func(t *testing.T) {
+			for _, f := range spec.Fields {
+				if why, bad := forbidden[f.Name]; bad {
+					t.Errorf("field %q has a --%s flag, but a tenant cannot write it: %s.\n"+
+						"The command would look like every other update and 404 at the rule layer.",
+						f.Name, f.flagName(), why)
+				}
+			}
+		})
+	}
 }
 
 func loadVendoredSchema(t *testing.T) map[string]schemaCollection {

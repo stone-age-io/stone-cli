@@ -27,6 +27,62 @@ that period, and this file starts where the versioned releases do.
 
 ### Added
 
+- **`stone nebula`**, for the two overlay operations that are not record writes.
+
+  `stone nebula ca-rotate prepare|commit|finish` rolls the organization's Nebula
+  CA. It is a route (`POST /api/org/nebula-ca/rotate`) because
+  `nebula_ca.updateRule` is operator-only — permitting the trigger through an
+  update rule would mean a deny-list over the certificate, the private key and
+  the rest of the CA material, on the record holding the trust anchor for the
+  whole mesh.
+
+  Three steps, and the wait between them is the feature. Nebula verification is
+  mutual — each peer checks the other against its *own* local CA pool, with no
+  chain and no fallback — and hosts pull their config on their own schedule, so
+  one write carrying both the new trust bundle and the new certificate splits
+  the mesh until propagation finishes. `prepare` publishes trust and moves no
+  issuance, so it is reversible; `commit` switches issuance and re-signs every
+  active host; `finish` drops the outgoing CA and is refused while any active
+  host still holds one, naming the host.
+
+  `stone nebula cert-audit` lists active hosts whose certificate no longer
+  matches their network. pb-nebula signed host certificates at `/32` until
+  v0.3.0, and Nebula builds a host's overlay route from the network in its
+  certificate — so such a host reaches no peer while looking entirely healthy:
+  active, in date, certificate present, config rendered, nothing logged. An
+  edited `overlay_ip` lands a host here too. It is a route
+  (`GET /api/org/nebula/cert-audit`) because answering it means parsing a Nebula
+  certificate, which no client can do.
+
+  Fix one host at a time with `stone nebula-host update <hostname> --renew`,
+  redeploying each config as you go. There is deliberately no bulk verb:
+  re-signing moves a certificate's fingerprint, and a fingerprint is what the
+  revocation blocklist matches, so a sweep rewrites every peer config in the
+  mesh.
+
+- **Seven new `nebula-host` flags**, from pb-nebula v0.3.0: `--is-relay`,
+  `--unsafe-networks`, `--unsafe-routes`, `--preferred-ranges`, `--mtu`,
+  `--tun-device` and `--renew`. `is_relay` joins the `ls` columns, which now
+  badge lighthouse and relay separately — a host can be both.
+
+  `--unsafe-networks` and `--unsafe-routes` are two halves of the same feature
+  living on *different* hosts: the first is signed into the gateway's
+  certificate and authorizes it to route that subnet, the second goes on each
+  host that wants to reach it. Neither derives the other.
+
+  **These require a platform on pb-nebula v0.3.0 or newer** (the platform pins
+  v0.3.2). Against v0.2.0 they name fields the collection does not have, so
+  PocketBase discards the write and the command reports success — the same
+  failure the `message-schema` removal above describes.
+
+- **`routeOnlyFields` in the schema drift guard.** The existing tests catch a
+  flag for a field that does not exist. They cannot catch a flag for a field
+  that *does* exist and that a tenant is not allowed to write — the write simply
+  404s at the rule layer, on a command that looks like every other update. That
+  is the shape `nebula_ca.rotate` would take if anyone added a `--rotate` flag,
+  and the `nats_accounts` signing-key triggers have been in that position all
+  along with only a prose note guarding them.
+
 - **`--code` on `organization`,** and `code` in its `ls` columns. The one
   globally unique identifier in the ecosystem: derived from the name when
   omitted, immutable once set, and baked into signed NATS account JWTs and
@@ -35,6 +91,12 @@ that period, and this file starts where the versioned releases do.
   what found it.
 
 ### Fixed
+
+- **Every error the CLI printed ended in `(0)`.** PocketBase sends the status as
+  `status`; `PBError` only read `code`, which nothing populates. So the number
+  in every error message was zero, and the distinction that matters most —
+  a 400 from a validator versus a 404 from an update rule — was invisible. Both
+  names are read now, with the HTTP status as a fallback.
 
 - **Refreshed the vendored platform schema** (`cmd/testdata/schema.json`), which
   is what the drift tests check the field table against. It was three platform
