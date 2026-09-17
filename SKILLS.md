@@ -61,7 +61,6 @@ Verbs `ls / get / create / update / delete / edit` are derived from a single dec
 | `nats-export` | `nats_account_exports` | yes | `name` | full |
 | `nebula-network` | `nebula_networks` | yes | `name` | full |
 | `nebula-host` | `nebula_hosts` | yes | `hostname` | full |
-| `leaf-node` | `leaf_nodes` | yes | `code` | full |
 | `nats-account` | `nats_accounts` | yes | `name` | `ls / get / update / edit` |
 | `nebula-ca` | `nebula_ca` | yes | `name` | `ls / get / update / edit` |
 
@@ -77,7 +76,7 @@ Verbs `ls / get / create / update / delete / edit` are derived from a single dec
 |---|---|---|
 | string, int, bool | `--name foo`, `--validity-years 5`, `--active` / `--active=false` | |
 | select | `--capability publish` | validated against a whitelist |
-| multiselect | `--synced-collections things,locations` | comma-separated |
+| multiselect | comma-separated list of allowed values | supported by the flag machinery; no entity declares one at present |
 | relation (id) | `--type abc123def456ghi` | **15-char PocketBase id only** — natural keys resolve on positional args, never on relation flags |
 | relation list (ids) | `--operations id1,id2` or repeated flag | |
 | JSON | `--metadata '{"k":"v"}'`, `--metadata @file.json`, `--metadata -` | inline, file, or stdin |
@@ -86,7 +85,7 @@ Relation flags deliberately have no name-to-id resolver: discover ids via `stone
 
 ### Auth-collection ergonomics
 
-`thing`, `nats-user`, `nebula-host`, and `leaf-node` are PocketBase auth collections. The CLI smooths over two PB requirements so callers don't have to think about them:
+`thing`, `nats-user`, and `nebula-host` are PocketBase auth collections. The CLI smooths over two PB requirements so callers don't have to think about them:
 
 - When a non-empty `password` is sent on create or update, `passwordConfirm` is mirrored to match, and `emailVisibility` defaults to `true` if unset. This applies to typed CRUD, `apply`, and `edit`.
 - On `create`, pass `--random-password` instead of `--password` to have the CLI generate a 32-char URL-safe password (`crypto/rand`, base64). The generated value is printed once to **stderr** so stdout stays clean for parsers. `--password` and `--random-password` are mutually exclusive; exactly one is required.
@@ -97,6 +96,26 @@ stone thing create --email reader-01@things.example.com --code reader-01 \
 # stderr: generated password: <value>
 # stdout: { ...record... }
 ```
+
+### Provisioning a device (prefer this over `create` for real hardware)
+
+```sh
+stone thing provision --code gw-01 --name "Gateway 01"     --type <thing_type_id> --nats-mode auto     --nebula-mode auto --nebula-network <id> --nebula-ip 10.128.0.42
+```
+
+Wraps `POST /api/org/things`: Thing + NATS identity + Nebula host in **one
+server-side transaction**. Email and password are server-generated; the password
+is printed **once** and is not retrievable afterwards, so capture it.
+
+- `--nats-mode` / `--nebula-mode`: `none` (default), `auto`, or `link`.
+- `auto` NATS uses the org's active account and its default role unless `--nats-role` is given.
+- `auto` Nebula **requires** `--nebula-network` and `--nebula-ip` — the route does not allocate an address.
+- `link` takes `--nats-user <id>` / `--nebula-host <id>`.
+- Attaching either identity is owner/admin. Both modes at `none` is member-level.
+
+Use plain `thing create` when the goal is an inventory record (and for anything
+that will round-trip through `pull`/`apply`), `provision` when the goal is a
+device that can connect.
 
 ## Declarative workflow
 
@@ -176,13 +195,13 @@ Do not substitute one of these for another. They differ in blast radius.
 | Replace my own credential | `stone nats creds rotate` | New creds for the caller's own identity. Any role, incl. badge. No id — derived from the token. |
 | Replace someone else's | `stone nats-user update <username> --regenerate` | New creds for that identity. Owner/admin. |
 | Kill a credential | `stone nats-user update <username> --revoke` | NATS rejects it **immediately and permanently**. Owner/admin. |
-| Decommission the device | `stone thing update <code> --active=false` | Signs the device out, blocks re-login, **and** revokes its NATS credential. Owner/admin. Also on `leaf-node`. |
+| Decommission the device | `stone thing update <code> --active=false` | Signs the device out, blocks re-login, **and** revokes its NATS credential. Owner/admin. |
 
 Rules a caller must not get wrong:
 
 - **Rotation is not revocation.** `--regenerate` leaves the previous credential valid until it expires. After a suspected compromise use `--revoke`.
 - **Never suggest `--active` on `nats-user`; the flag does not exist, deliberately.** `pb-nats` reads that field and consults it nowhere in JWT generation, so clearing it would recolour a status badge while the client kept publishing. It is readable as a status column only. The disconnect operation is `--revoke`.
-- **`--active=false` on a thing or leaf-node is destructive to device operation, not a label.** Reactivating issues a *fresh* NATS credential; the previous `.creds` file stays revoked forever and must be replaced on the device. Confirm intent before running it.
+- **`--active=false` on a thing is destructive to device operation, not a label.** Reactivating issues a *fresh* NATS credential; the previous `.creds` file stays revoked forever and must be replaced on the device. Confirm intent before running it.
 - `active` round-trips through `pull`/`apply`. A workspace file carrying `active: false` decommissions real hardware on the next apply.
 - Re-run `stone nats sync-context` after any operation that changes the caller's own credential.
 

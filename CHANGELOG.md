@@ -12,6 +12,25 @@ that period, and this file starts where the versioned releases do.
 
 ### Removed
 
+- **The `leaf-node` entity.** The platform dropped its `leaf_nodes` collection:
+  an edge site is now an ordinary Thing whose agent has its leaf capabilities
+  turned on, and the JetStream domain is computed from the Thing's `code` rather
+  than stored. Gone here with it: `stone leaf-node` in every alias form, and
+  `--synced-collections`, which was that entity's only multiselect field.
+
+  This one did **not** fail quietly the way the `message-schema` removal below
+  did — the collection is gone, so every `leaf-node` subcommand 404s. It also
+  broke `stone pull`, which walks `entitySpecs` and returns on the first
+  collection error: the pull wrote every other collection and then exited
+  non-zero, which is a GitOps workflow that looks like it half-worked because it
+  did.
+
+  Existing `nats_users` and `nebula_hosts` rows that belonged to a leaf node
+  are deliberately left working by the platform's migration — they are live
+  credentials at real sites. Deactivate them from the console once each site runs
+  against its Thing. Deactivate, not delete: revoking a Nebula certificate needs
+  the record in the database to fingerprint it.
+
 - **The `message-schema` entity, and the fields that pointed at it.** The
   platform dropped its `message_schemas` collection along with
   `thing_types.capabilities`, `thing_types.nats_role` and
@@ -26,6 +45,30 @@ that period, and this file starts where the versioned releases do.
   is declared.
 
 ### Added
+
+- **`stone thing provision`** — create a Thing and mint its NATS identity and
+  Nebula host in **one server-side transaction**, wrapping the platform's
+  `POST /api/org/things`.
+
+  It sits beside `thing create` rather than replacing it. `create` writes one
+  inventory record, which is what `apply` needs; `provision` stands a device up
+  on the network. Doing that as three client calls is what the route exists to
+  replace — a failure on the third left a signed NATS credential and an allocated
+  overlay IP with nothing referencing either. The atomicity is real rather than
+  decorative: pb-nats signs and publishes on `AfterCreateSuccess`, which
+  PocketBase defers to transaction completion, so a rollback means NATS was never
+  told anything happened.
+
+  `--nats-mode` and `--nebula-mode` each take `none` (default), `auto` or
+  `link`. `auto` NATS uses the organization's active account and its default
+  role unless `--nats-role` names another; `auto` Nebula requires
+  `--nebula-network` and `--nebula-ip`, because the route does not allocate an
+  overlay address. `link` attaches an existing identity by id.
+
+  The Thing's email (`<code>@<org-code>.thing.local`) and password are generated
+  server-side, and the password is printed **once** — PocketBase stores only its
+  hash. Attaching either identity requires owner or admin; a member may provision
+  with both modes left at `none`.
 
 - **`stone nebula`**, for the two overlay operations that are not record writes.
 
@@ -89,6 +132,28 @@ that period, and this file starts where the versioned releases do.
   printed labels — so an operator needs to be able to read it back. This had
   been missing since the platform added the field; the drift guard below is
   what found it.
+
+### Changed
+
+- **The vendored platform schema is refreshed again** (`cmd/testdata/schema.json`,
+  now platform `754e421`). The drift guard caught `leaf_nodes` and nothing else
+  across roughly twenty-five platform commits, which is the outcome the fixture
+  exists to produce: one loud failure naming the collection, and silence about
+  every field that did not move.
+
+- **`thing create --active=false` is documented as the no-op it now is.** The
+  platform's `hooks/active_flag.go` forces `active = true` on every Thing
+  create, because `things.authRule` is `active = true` and a PocketBase bool has
+  no schema default — an omitted field would land as false and the device could
+  never authenticate. Deactivation is an update, and only an update. No flag
+  changed; the help text and `CLAUDE.md` now say so.
+
+- **Every write to `organization` is operator-only.** `organizations.deleteRule`
+  lost its `owner = @request.auth.id` branch, joining `updateRule` and
+  `createRule`, so delete was the last verb an org owner could reach. The verbs
+  are left full rather than trimmed, because operators use this CLI too — for a
+  tenant, all three now 404 at the rule layer. The spec comment says which and
+  why.
 
 ### Fixed
 

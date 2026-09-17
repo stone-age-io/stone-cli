@@ -204,6 +204,14 @@ var entitySpecs = []EntitySpec{
 			{Name: "description", Type: FString, Help: "free-form description"},
 		},
 	},
+	// Every write here is operator-only, and has been since organizations.updateRule
+	// and .deleteRule both lost their owner branch. The verbs are left full rather
+	// than trimmed because operators use this CLI too -- for a tenant, create,
+	// update and delete simply 404 at the rule layer. Delete was the last one an
+	// owner could reach: it went because 15 of the 17 relations into organizations
+	// are non-cascade and non-required, so PocketBase blanks them instead of
+	// deleting the rows, orphaning every thing, location, nats_account and
+	// nebula_ca at organization = "".
 	{
 		Name:       "organization",
 		Plural:     "organizations",
@@ -221,7 +229,7 @@ var entitySpecs = []EntitySpec{
 			// JWTs before anyone noticed it was the wrong tenant.
 			//
 			// Exposed on update like every other immutable code in this table
-			// (things, locations, both type collections, leaf nodes): the freeze
+			// (things, locations, both type collections): the freeze
 			// is a platform rule, so the server answers for it rather than the
 			// CLI carrying a create-only concept no other field would use. It
 			// is a KeyColumn because an operator needs to READ it -- it is baked
@@ -489,38 +497,6 @@ var entitySpecs = []EntitySpec{
 			// routeOnlyFields in schema_drift_test.go is what holds that line.
 		},
 	},
-
-	// ---- Leaf nodes ------------------------------------------------------
-	// A Leaf Node models a customer site running its own local NATS server.
-	// It's an auth collection ("a special Thing") that ties together a NATS
-	// identity, an optional Nebula host, and an allowlist of collections the
-	// site's leaf-sync agent mirrors into local KV. See platform-docs
-	// leaf-nodes.md.
-
-	{
-		Name:       "leaf-node",
-		Plural:     "leaf-nodes",
-		Collection: "leaf_nodes",
-		OrgScoped:  true,
-		KeyColumns: []string{"code", "name", "domain", "nats_user", "location", "active"},
-		LookupKey:  "code",
-		Fields: []Field{
-			{Name: "email", Type: FString, Required: true, Help: "leaf node's auth email (required by the leaf_nodes auth collection)"},
-			{Name: "password", Type: FString, Required: true, Help: "leaf node's auth password (min 8 chars)"},
-			{Name: "name", Type: FString, Help: "display name"},
-			{Name: "code", Type: FString, Help: "site slug; derives the NATS username and JetStream domain (immutable after creation)"},
-			{Name: "description", Type: FString, Help: "free-form description"},
-			{Name: "domain", Type: FString, Help: "local JetStream domain, e.g. edge-<code> (usually derived from code)"},
-			{Name: "synced_collections", Type: FMSelect, Values: []string{"things", "locations", "thing_types", "location_types", "thing_type_operations"}, Help: "collections this site mirrors; subset of the sync allowlist (comma-separated)"},
-			{Name: "location", Type: FID, Help: "locations id (optional site context)"},
-			{Name: "metadata", Type: FJSON, Help: "arbitrary JSON metadata"},
-			{Name: "nats_user", Type: FID, Help: "nats_users id (auto-provisioned by a server-side hook on create)"},
-			{Name: "nebula_host", Type: FID, Help: "nebula_hosts id (optional overlay-mesh membership)"},
-			// Same semantics as things.active: leaf-sync stops authenticating,
-			// its existing session dies, and the site's NATS credential is revoked.
-			{Name: "active", Type: FBool, Help: "in service; false DECOMMISSIONS: stops leaf-sync and revokes the site's NATS credential (owner/admin)"},
-		},
-	},
 }
 
 // resolveOutput returns the effective output format for typed CRUD commands.
@@ -560,6 +536,10 @@ func registerCRUD(spec EntitySpec) {
 	if spec.hasVerb("edit") {
 		root.AddCommand(buildEditCmd(spec))
 	}
+	// Non-CRUD subcommands an entity happens to have -- see extraCommands in
+	// thing.go. Kept out of EntitySpec because a spec describes a collection's
+	// fields, and these describe a platform route that only resembles one.
+	root.AddCommand(extraCommands[spec.Name]...)
 	rootCmd.AddCommand(root)
 }
 

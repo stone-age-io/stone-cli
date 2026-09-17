@@ -63,7 +63,6 @@ Verbs `ls / get / create / update / delete / edit` are synthesized from a single
 | Entity | Org-scoped | Verbs |
 |---|---|---|
 | `thing`, `location`, `location-type`, `thing-type`, `thing-type-operation` | yes | full |
-| `leaf-node` | yes | full |
 | `invite` | yes | full |
 | `nats-user`, `nats-role`, `nats-import`, `nats-export` | yes | full |
 | `nebula-network`, `nebula-host` | yes | full |
@@ -77,7 +76,7 @@ Verbs `ls / get / create / update / delete / edit` are synthesized from a single
 
 | Entities | Lookup key |
 |---|---|
-| `thing`, `location`, `location-type`, `thing-type`, `leaf-node` | `code` |
+| `thing`, `location`, `location-type`, `thing-type` | `code` |
 | `nebula-host` | `hostname` |
 | `nats-user` | `nats_username` |
 | `invite` | `email` |
@@ -100,9 +99,9 @@ stone thing ls --fields code,name -o json
   - inline JSON: `--metadata '{"k":"v"}'`
   - file: `--metadata @./meta.json`
   - stdin: `--metadata -`
-- **Selects/multiselects** (e.g. `--capability publish`, `--synced-collections things,locations`) are validated against a whitelist; the CLI prints the choices in `--help`.
+- **Selects/multiselects** (e.g. `--capability publish`) are validated against a whitelist; the CLI prints the choices in `--help`.
 
-### Auth collections (`thing`, `nats-user`, `nebula-host`, `leaf-node`)
+### Auth collections (`thing`, `nats-user`, `nebula-host`)
 
 These collections are PocketBase auth records. The CLI handles two PB quirks for you:
 
@@ -131,6 +130,20 @@ stone thing create --email s43@example.com --random-password \
 stone thing get sensor-42 --fields code,name,location   # lookup by code or id
 stone thing edit sensor-42         # opens $EDITOR with YAML, PATCHes on save
 ```
+
+### Provisioning a device
+
+`stone thing create` writes an inventory row only. To stand up real hardware, use the transactional route:
+
+```sh
+stone thing provision --code gw-01 --name "Gateway 01"   --type <thing_type_id> --nats-mode auto   --nebula-mode auto --nebula-network <id> --nebula-ip 10.128.0.42
+```
+
+- Wraps `POST /api/org/things`: Thing + NATS identity + Nebula host in one transaction. No partial state on failure.
+- `--nats-mode` / `--nebula-mode` are `none` (default) | `auto` | `link`.
+- `auto` Nebula requires `--nebula-network` **and** `--nebula-ip`; no address is allocated for you.
+- Email and password are server-generated. **The password prints once** — capture it in the same step or it is gone.
+- Attaching either identity requires owner/admin.
 
 ## Pull / apply (GitOps workflow)
 
