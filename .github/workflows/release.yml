@@ -1,5 +1,5 @@
 # Cuts a release when a v* tag is pushed: cross-compiled binaries via goreleaser,
-# checksums, and a GitHub release whose notes come from the commits in the tag.
+# checksums, and a GitHub release whose notes come from CHANGELOG.md.
 #
 # No container image here, unlike the platform's release workflow -- this binary
 # is installed onto a host, not run as a service in a cluster, and an image would
@@ -11,7 +11,7 @@ on:
     tags: ['v*']
 
 permissions:
-  contents: write   # create the GitHub release
+  contents: write   # create the GitHub release, and read it back to verify
 
 jobs:
   release:
@@ -31,9 +31,41 @@ jobs:
       - name: Test
         run: go test ./...
 
+      # The body is assembled here rather than by goreleaser, for the reasons in
+      # the comment above `changelog:` in .goreleaser.yaml. The script refuses to
+      # print an empty section, so a tag pushed before `## [Unreleased]` was
+      # promoted fails HERE, before any artifact is built or published, rather
+      # than producing a release with a blank body that has to be edited by hand.
+      - name: Build release notes from CHANGELOG.md
+        run: ./scripts/release-notes.sh "$GITHUB_REF_NAME" > "$RUNNER_TEMP/release-notes.md"
+
       - uses: goreleaser/goreleaser-action@v6
         with:
-          version: latest
-          args: release --clean
+          # Pinned to the v2 line rather than 'latest'. With 'latest' the action
+          # locks to '~> v2' anyway and says so in an annotation on every run --
+          # but it would stop doing that the day GoReleaser 3 ships, and a major
+          # would arrive mid-release with no commit asking for it.
+          version: '~> v2'
+          args: release --clean --release-notes=${{ runner.temp }}/release-notes.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # goreleaser reports success whether or not it used the notes file, so this
+      # asserts the published body rather than trusting the exit code. The
+      # platform's v0.5.0 shipped with an EMPTY body: the flag was passed and
+      # logged correctly, but `changelog.disable: true` skipped the pipe that
+      # reads it. Nothing in that run went red. A release body is only visibly
+      # wrong to someone who opens the release page, which is exactly the kind of
+      # failure that needs an assertion rather than a reviewer.
+      - name: Verify the release body came from CHANGELOG.md
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          body=$(gh release view "$GITHUB_REF_NAME" --json body --jq .body)
+          if ! grep -qF "## stone $GITHUB_REF_NAME" <<<"$body"; then
+            echo "::error::release body is not the one scripts/release-notes.sh built"
+            echo "first 20 lines of what was published:"
+            head -20 <<<"$body"
+            exit 1
+          fi
+          echo "release body OK ($(wc -l <<<"$body") lines)"

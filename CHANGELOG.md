@@ -10,6 +10,10 @@ that period, and this file starts where the versioned releases do.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.3.0] - 2026-09-17
+
 ### Removed
 
 - **The `leaf-node` entity.** The platform dropped its `leaf_nodes` collection:
@@ -280,6 +284,7 @@ Summarising the state at first tag rather than the path to it:
 - `auth login` is interactive by design; credentials cannot be discovered by the
   CLI, which is also what stops an assistant authenticating as you.
 
-[Unreleased]: https://github.com/stone-age-io/stone-cli/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/stone-age-io/stone-cli/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/stone-age-io/stone-cli/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/stone-age-io/stone-cli/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/stone-age-io/stone-cli/releases/tag/v0.1.0

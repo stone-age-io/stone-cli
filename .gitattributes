@@ -1,0 +1,14 @@
+# Shell scripts must check out with LF on every platform.
+#
+# This repo is developed on Windows with core.autocrlf=true, which rewrites text
+# files to CRLF in the working copy. For Go sources that is harmless -- the
+# compiler does not care, and only `gofmt -l` notices. For a shell script it is
+# fatal in a way that is hard to read: a CRLF `#!/usr/bin/env bash` line makes
+# the kernel look for an interpreter named "bash\r", and the Linux runner fails
+# with `bad interpreter: /usr/bin/env: no such file or directory` -- naming env,
+# which exists, rather than the carriage return, which is the problem.
+#
+# The blob is already stored with LF, so this changes nothing on the runner
+# today. It is here so that a checkout on a machine configured differently, or a
+# script added by someone who is not on Windows, cannot reintroduce it.
+*.sh text eol=lf

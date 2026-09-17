@@ -3,6 +3,7 @@ field table against it. This file is DATA, not the source of truth -- the source
 is the platform repo.
 
 source:   https://github.com/stone-age-io/platform/blob/main/schema.json
+platform release: v0.6.0
 platform: repo at 754e421
 schema.json last changed in platform commit: 8c40356, which dropped the
           leaf_nodes collection (an edge site is a Thing now) and added the
