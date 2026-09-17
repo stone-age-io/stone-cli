@@ -200,8 +200,8 @@
   },
   {
     "id": "pbc_4097575383",
-    "listRule": "// 1. UI USER, owner/admin: every NATS identity in the active organization.\n//    Not members -- this collection holds signed identities, and creds_file\n//    embeds the seed. Members get exactly one row, via branch 2.\n(@request.auth.collectionName = \"users\" &&\n organization = @request.auth.current_organization &&\n(@request.auth.memberships_via_user.organization ?= @request.auth.current_organization &&\n (@request.auth.memberships_via_user.role ?= \"owner\" || @request.auth.memberships_via_user.role ?= \"admin\"))) ||\n\n// 2. UI USER, any role: the ONE identity linked to my own membership in the\n//    active organization. The browser opens its NATS connection with these\n//    credentials (ui/src/stores/nats.ts), so every role including dashboard needs\n//    this -- and only ever its own row. Row-correlated: both conditions match\n//    the same membership record.\n(@request.auth.collectionName = \"users\" &&\n memberships_via_nats_user.user ?= @request.auth.id &&\n memberships_via_nats_user.organization ?= @request.auth.current_organization) ||\n\n// 3. THING: a Thing sees ONLY the NATS user assigned to its 'nats_user' field\n(@request.auth.collectionName = \"things\" &&\n things_via_nats_user.id ?= @request.auth.id) ||\n\n// 4. SELF: if the NATS user authenticates directly, it sees its own record\n(@request.auth.collectionName = \"nats_users\" &&\n id = @request.auth.id)\n\n// NOTE: there is deliberately no leaf_nodes branch. An edge box gets its creds\n// from GET /api/leaf/bootstrap (hooks/leaf_node_routes.go), which reads this\n// collection with the app's own privileges and returns four named values. That\n// keeps the edge's blast radius fixed regardless of how these rules evolve.",
-    "viewRule": "// 1. UI USER, owner/admin: every NATS identity in the active organization.\n//    Not members -- this collection holds signed identities, and creds_file\n//    embeds the seed. Members get exactly one row, via branch 2.\n(@request.auth.collectionName = \"users\" &&\n organization = @request.auth.current_organization &&\n(@request.auth.memberships_via_user.organization ?= @request.auth.current_organization &&\n (@request.auth.memberships_via_user.role ?= \"owner\" || @request.auth.memberships_via_user.role ?= \"admin\"))) ||\n\n// 2. UI USER, any role: the ONE identity linked to my own membership in the\n//    active organization. The browser opens its NATS connection with these\n//    credentials (ui/src/stores/nats.ts), so every role including dashboard needs\n//    this -- and only ever its own row. Row-correlated: both conditions match\n//    the same membership record.\n(@request.auth.collectionName = \"users\" &&\n memberships_via_nats_user.user ?= @request.auth.id &&\n memberships_via_nats_user.organization ?= @request.auth.current_organization) ||\n\n// 3. THING: a Thing sees ONLY the NATS user assigned to its 'nats_user' field\n(@request.auth.collectionName = \"things\" &&\n things_via_nats_user.id ?= @request.auth.id) ||\n\n// 4. SELF: if the NATS user authenticates directly, it sees its own record\n(@request.auth.collectionName = \"nats_users\" &&\n id = @request.auth.id)\n\n// NOTE: there is deliberately no leaf_nodes branch. An edge box gets its creds\n// from GET /api/leaf/bootstrap (hooks/leaf_node_routes.go), which reads this\n// collection with the app's own privileges and returns four named values. That\n// keeps the edge's blast radius fixed regardless of how these rules evolve.",
+    "listRule": "// 1. UI USER, owner/admin: every NATS identity in the active organization.\n//    Not members -- this collection holds signed identities, and creds_file\n//    embeds the seed. Members get exactly one row, via branch 2.\n(@request.auth.collectionName = \"users\" &&\n organization = @request.auth.current_organization &&\n(@request.auth.memberships_via_user.organization ?= @request.auth.current_organization &&\n (@request.auth.memberships_via_user.role ?= \"owner\" || @request.auth.memberships_via_user.role ?= \"admin\"))) ||\n\n// 2. UI USER, any role: the ONE identity linked to my own membership in the\n//    active organization. The browser opens its NATS connection with these\n//    credentials (ui/src/stores/nats.ts), so every role including dashboard needs\n//    this -- and only ever its own row. Row-correlated: both conditions match\n//    the same membership record.\n(@request.auth.collectionName = \"users\" &&\n memberships_via_nats_user.user ?= @request.auth.id &&\n memberships_via_nats_user.organization ?= @request.auth.current_organization) ||\n\n// 3. THING: a Thing sees ONLY the NATS user assigned to its 'nats_user' field\n(@request.auth.collectionName = \"things\" &&\n things_via_nats_user.id ?= @request.auth.id) ||\n\n// 4. SELF: if the NATS user authenticates directly, it sees its own record\n(@request.auth.collectionName = \"nats_users\" &&\n id = @request.auth.id)\n\n// NOTE: a gateway reads nothing here beyond branch 3 -- the one identity linked\n// to itself. Everything else its NATS leaf server needs (the account JWT, the\n// operator JWT, the $SYS account JWT) comes from GET /api/me/leaf-config\n// (hooks/leaf_config_routes.go), which reads those records with the privileges\n// of the app itself. Do not add a branch here to make some edge feature work --\n// extend that route instead, so the edge blast radius stays a fixed list rather\n// than a consequence of rules that change for unrelated reasons.",
+    "viewRule": "// 1. UI USER, owner/admin: every NATS identity in the active organization.\n//    Not members -- this collection holds signed identities, and creds_file\n//    embeds the seed. Members get exactly one row, via branch 2.\n(@request.auth.collectionName = \"users\" &&\n organization = @request.auth.current_organization &&\n(@request.auth.memberships_via_user.organization ?= @request.auth.current_organization &&\n (@request.auth.memberships_via_user.role ?= \"owner\" || @request.auth.memberships_via_user.role ?= \"admin\"))) ||\n\n// 2. UI USER, any role: the ONE identity linked to my own membership in the\n//    active organization. The browser opens its NATS connection with these\n//    credentials (ui/src/stores/nats.ts), so every role including dashboard needs\n//    this -- and only ever its own row. Row-correlated: both conditions match\n//    the same membership record.\n(@request.auth.collectionName = \"users\" &&\n memberships_via_nats_user.user ?= @request.auth.id &&\n memberships_via_nats_user.organization ?= @request.auth.current_organization) ||\n\n// 3. THING: a Thing sees ONLY the NATS user assigned to its 'nats_user' field\n(@request.auth.collectionName = \"things\" &&\n things_via_nats_user.id ?= @request.auth.id) ||\n\n// 4. SELF: if the NATS user authenticates directly, it sees its own record\n(@request.auth.collectionName = \"nats_users\" &&\n id = @request.auth.id)\n\n// NOTE: a gateway reads nothing here beyond branch 3 -- the one identity linked\n// to itself. Everything else its NATS leaf server needs (the account JWT, the\n// operator JWT, the $SYS account JWT) comes from GET /api/me/leaf-config\n// (hooks/leaf_config_routes.go), which reads those records with the privileges\n// of the app itself. Do not add a branch here to make some edge feature work --\n// extend that route instead, so the edge blast radius stays a fixed list rather\n// than a consequence of rules that change for unrelated reasons.",
     "createRule": "// Owner/admin only. Minting a NATS identity is a security operation: the\n// permissions on the new record end up inside a JWT signed by the org account.\n@request.auth.collectionName = \"users\" &&\n@request.body.organization = @request.auth.current_organization &&\n(@request.auth.memberships_via_user.organization ?= @request.auth.current_organization &&\n (@request.auth.memberships_via_user.role ?= \"owner\" || @request.auth.memberships_via_user.role ?= \"admin\"))",
     "updateRule": "// Owner/admin only, scoped to the active org, and never re-pointable at another\n// tenant. Members are excluded because publish_permissions here is copied into\n// the signed JWT -- a member could otherwise self-grant publish \">\".\n//\n// Rotating your OWN credentials does not go through this rule: it needs a\n// single-field allowlist (regenerate, and nothing else), which a rule can only\n// approximate with an :isset deny-list that silently opens up whenever a field\n// is added. That is POST /api/me/nats-creds/rotate instead\n// (hooks/credential_routes.go), which writes exactly one field and takes no\n// record id.\n@request.auth.collectionName = \"users\" &&\norganization = @request.auth.current_organization &&\n(@request.auth.memberships_via_user.organization ?= @request.auth.current_organization &&\n (@request.auth.memberships_via_user.role ?= \"owner\" || @request.auth.memberships_via_user.role ?= \"admin\")) &&\n@request.body.organization:changed = false",
     "deleteRule": "// Owner/admin only (mirrors updateRule). Deleting a NATS identity revokes a\n// device's access, so it is not a member-level action.\n@request.auth.collectionName = \"users\" &&\norganization = @request.auth.current_organization &&\n(@request.auth.memberships_via_user.organization ?= @request.auth.current_organization &&\n (@request.auth.memberships_via_user.role ?= \"owner\" || @request.auth.memberships_via_user.role ?= \"admin\"))",
@@ -970,11 +970,11 @@
   },
   {
     "id": "pbc_704572500",
-    "listRule": "// If a Thing is authenticating as itself (e.g. via SDK), it only sees its own record.\n// If a User is authenticating, they see all things belonging to their active organization.\n// A leaf node mirrors all things in its own organization.\n(@request.auth.collectionName = \"things\" && id = @request.auth.id) || \n(@request.auth.collectionName = \"users\" && organization = @request.auth.current_organization) || \n(@request.auth.collectionName = \"leaf_nodes\" && organization = @request.auth.organization)",
-    "viewRule": "// If a Thing is authenticating as itself (e.g. via SDK), it only sees its own record.\n// If a User is authenticating, they see all things belonging to their active organization.\n// A leaf node mirrors all things in its own organization.\n(@request.auth.collectionName = \"things\" && id = @request.auth.id) || \n(@request.auth.collectionName = \"users\" && organization = @request.auth.current_organization) || \n(@request.auth.collectionName = \"leaf_nodes\" && organization = @request.auth.organization)",
+    "listRule": "// If a Thing is authenticating as itself (e.g. via SDK), it only sees its own record.\n// If a User is authenticating, they see all things belonging to their active organization.\n// Sentinel guard: in PocketBase an empty string equals an empty string, so a\n// blank organization must never scope a read. Do not put an apostrophe in a\n// rule comment: quotes are tokenized before comments are stripped, so one\n// stray apostrophe re-pairs every quote after it and the rule stops parsing.\n// See migrations/schema_update_tenancy_sentinel.go.\n(@request.auth.collectionName = \"things\" && id = @request.auth.id) || \n(@request.auth.collectionName = \"users\" && @request.auth.current_organization != \"\" && organization = @request.auth.current_organization && @request.auth.memberships_via_user.organization ?= @request.auth.current_organization)",
+    "viewRule": "// If a Thing is authenticating as itself (e.g. via SDK), it only sees its own record.\n// If a User is authenticating, they see all things belonging to their active organization.\n// Sentinel guard: in PocketBase an empty string equals an empty string, so a\n// blank organization must never scope a read. Do not put an apostrophe in a\n// rule comment: quotes are tokenized before comments are stripped, so one\n// stray apostrophe re-pairs every quote after it and the rule stops parsing.\n// See migrations/schema_update_tenancy_sentinel.go.\n(@request.auth.collectionName = \"things\" && id = @request.auth.id) || \n(@request.auth.collectionName = \"users\" && @request.auth.current_organization != \"\" && organization = @request.auth.current_organization && @request.auth.memberships_via_user.organization ?= @request.auth.current_organization)",
     "createRule": "// Only users (not things) can create records, in their own active organization.\n// Members may add inventory; only owner/admin may attach a NATS or Nebula\n// identity to it, or set the active flag.\n//\n// nats_user / nebula_host are owner/admin only: a Thing can read the credential\n//    of its own linked identity, so a member able to re-point those relations at a\n//    privileged identity and then authenticate as the Thing would have a\n//    credential-theft path.\n//\n// active is owner/admin only for the same reason delete is: taking a device off\n//    the network revokes its NATS identity (hooks/active_flag.go). Members create\n//    and edit inventory; disabling it is a management action.\n//\n// The member branch names the roles it admits. Restricting the FIELDS without\n//    naming the ROLE let `dashboard` -- the least privileged role, which has no inventory\n//    authority at all -- create and edit Things.\n@request.auth.collectionName = \"users\" &&\n@request.body.organization = @request.auth.current_organization &&\n(\n  // Owner/admin: may assign the NATS / Nebula identity links.\n  (@request.auth.memberships_via_user.organization ?= @request.auth.current_organization &&\n (@request.auth.memberships_via_user.role ?= \"owner\" || @request.auth.memberships_via_user.role ?= \"admin\"))\n  ||\n  // Member: inventory fields only (name, description, location, metadata,\n  // floorplan_position). Attaching an identity is an admin action.\n  ((@request.auth.memberships_via_user.organization ?= @request.auth.current_organization &&\n   (@request.auth.memberships_via_user.role ?= \"owner\" ||\n    @request.auth.memberships_via_user.role ?= \"admin\" ||\n    @request.auth.memberships_via_user.role ?= \"member\")) &&\n   @request.body.nats_user:changed = false &&\n   @request.body.nebula_host:changed = false &&\n   @request.body.active:changed = false)\n)",
-    "updateRule": "// 1. Only users can update things.\n// 2. The thing must belong to the user's current organization.\n// 3. The organization field cannot be modified (no \"teleporting\" between orgs).\n// 4. nats_user / nebula_host are owner/admin only: a Thing can read the\n//    credential of its own linked identity, so a member able to re-point those\n//    relations at a privileged identity and then authenticate as the Thing would\n//    have a credential-theft path.\n// 5. active is owner/admin only for the same reason delete is: flipping it\n//    revokes the Thing's NATS identity and kills its outstanding auth tokens\n//    (hooks/active_flag.go). A member who could clear it could take any device in\n//    the organization off the network.\n// 6. The member branch names the roles it admits. Restricting the FIELDS without\n//    naming the ROLE let `dashboard` -- the least privileged role, which has no inventory\n//    authority at all -- create and edit Things.\n// 7. Freeze `code`: a sibling app resolves a ticket to this device by\n//    (organization, code), and the code may be printed on a label screwed to\n//    it. Changing it orphans every history that points here. Same term and\n//    the same reason as leaf_nodes.code -- see ADR 0002 in platform-docs.\n@request.auth.collectionName = \"users\" &&\norganization = @request.auth.current_organization &&\n@request.body.organization:changed = false &&\n@request.body.code:changed = false &&\n(\n  // Owner/admin: may assign the NATS / Nebula identity links.\n  (@request.auth.memberships_via_user.organization ?= @request.auth.current_organization &&\n (@request.auth.memberships_via_user.role ?= \"owner\" || @request.auth.memberships_via_user.role ?= \"admin\"))\n  ||\n  // Member: inventory fields only (name, description, location, metadata,\n  // floorplan_position). Attaching an identity is an admin action.\n  ((@request.auth.memberships_via_user.organization ?= @request.auth.current_organization &&\n   (@request.auth.memberships_via_user.role ?= \"owner\" ||\n    @request.auth.memberships_via_user.role ?= \"admin\" ||\n    @request.auth.memberships_via_user.role ?= \"member\")) &&\n   @request.body.nats_user:changed = false &&\n   @request.body.nebula_host:changed = false &&\n   @request.body.active:changed = false)\n)",
-    "deleteRule": "// Owner/admin only. `things` was the sole collection left with a member-level\n// delete -- locations, thing_types, location_types,\n// thing_type_operations, leaf_nodes, nats_roles and nebula_networks all gate it.\n//\n// Deleting a Thing is high-impact and not undoable from the UI: it orphans any\n// NATS or Nebula identity attached to it, and leaf-sync propagates the deletion\n// into every edge node local KV mirror. Members create and edit inventory;\n// removing it is a management action.\n@request.auth.collectionName = \"users\" &&\norganization = @request.auth.current_organization &&\n(@request.auth.memberships_via_user.organization ?= @request.auth.current_organization &&\n (@request.auth.memberships_via_user.role ?= \"owner\" || @request.auth.memberships_via_user.role ?= \"admin\"))",
+    "updateRule": "// 1. Only users can update things.\n// 2. The thing must belong to the user's current organization.\n// 3. The organization field cannot be modified (no \"teleporting\" between orgs).\n// 4. nats_user / nebula_host are owner/admin only: a Thing can read the\n//    credential of its own linked identity, so a member able to re-point those\n//    relations at a privileged identity and then authenticate as the Thing would\n//    have a credential-theft path.\n// 5. active is owner/admin only for the same reason delete is: flipping it\n//    revokes the Thing's NATS identity and kills its outstanding auth tokens\n//    (hooks/active_flag.go). A member who could clear it could take any device in\n//    the organization off the network.\n// 6. The member branch names the roles it admits. Restricting the FIELDS without\n//    naming the ROLE let `dashboard` -- the least privileged role, which has no inventory\n//    authority at all -- create and edit Things.\n// 7. Freeze `code`: a sibling app resolves a ticket to this device by\n//    (organization, code), and the code may be printed on a label screwed to\n//    it. Changing it orphans every history that points here. Same term and\n//    the same reason as locations.code -- see ADR 0002 in platform-docs.\n@request.auth.collectionName = \"users\" &&\norganization = @request.auth.current_organization &&\n@request.body.organization:changed = false &&\n@request.body.code:changed = false &&\n(\n  // Owner/admin: may assign the NATS / Nebula identity links.\n  (@request.auth.memberships_via_user.organization ?= @request.auth.current_organization &&\n (@request.auth.memberships_via_user.role ?= \"owner\" || @request.auth.memberships_via_user.role ?= \"admin\"))\n  ||\n  // Member: inventory fields only (name, description, location, metadata,\n  // floorplan_position). Attaching an identity is an admin action.\n  ((@request.auth.memberships_via_user.organization ?= @request.auth.current_organization &&\n   (@request.auth.memberships_via_user.role ?= \"owner\" ||\n    @request.auth.memberships_via_user.role ?= \"admin\" ||\n    @request.auth.memberships_via_user.role ?= \"member\")) &&\n   @request.body.nats_user:changed = false &&\n   @request.body.nebula_host:changed = false &&\n   @request.body.active:changed = false)\n)",
+    "deleteRule": "// Owner/admin only. `things` was the sole collection left with a member-level\n// delete -- locations, thing_types, location_types,\n// thing_type_operations, nats_roles and nebula_networks all gate it.\n//\n// Deleting a Thing is high-impact and not undoable from the UI: it orphans any\n// NATS or Nebula identity attached to it. Members create and edit inventory;\n// removing it is a management action.\n@request.auth.collectionName = \"users\" &&\norganization = @request.auth.current_organization &&\n(@request.auth.memberships_via_user.organization ?= @request.auth.current_organization &&\n (@request.auth.memberships_via_user.role ?= \"owner\" || @request.auth.memberships_via_user.role ?= \"admin\"))",
     "name": "things",
     "type": "auth",
     "fields": [
@@ -1212,9 +1212,9 @@
     ],
     "system": false,
     "authRule": "// A deactivated Thing cannot obtain a new auth token.\n//\n// This rule is evaluated at the AUTH ENDPOINT ONLY (apis/record_helpers.go,\n// RecordAuthResponse) -- not on every request carrying an already-issued token.\n// authToken.duration below is 7 days, so on its own this rule would leave a\n// deactivated device connected for up to a week. hooks/active_flag.go closes\n// that window by refreshing tokenKey when active goes true -> false, which\n// invalidates every outstanding token immediately, and by revoking the linked\n// NATS identity -- which is the Thing's real capability, and is not touched by\n// anything PocketBase does.\nactive = true",
-    "manageRule": "// Org Admins/Owners may manage (e.g. reset the PocketBase password of) their\n// organization's things. Without this, `password` on update requires\n// `oldPassword` (forms/record_upsert.go) which nobody holds for a device, so a\n// Thing's PocketBase credential was mint-once with no recovery short of\n// deleting the record. Mirrors the leaf_nodes manageRule and the updateRule\n// below.\norganization = @request.auth.current_organization && \n(@request.auth.memberships_via_user.organization ?= @request.auth.current_organization && \n (@request.auth.memberships_via_user.role ?= \"owner\" || @request.auth.memberships_via_user.role ?= \"admin\"))",
+    "manageRule": "// Org Admins/Owners may manage (e.g. reset the PocketBase password of) their\n// organization's things. Without this, `password` on update requires\n// `oldPassword` (forms/record_upsert.go) which nobody holds for a device, so a\n// Thing's PocketBase credential was mint-once with no recovery short of\n// deleting the record. Mirrors the updateRule below.\norganization = @request.auth.current_organization && \n(@request.auth.memberships_via_user.organization ?= @request.auth.current_organization && \n (@request.auth.memberships_via_user.role ?= \"owner\" || @request.auth.memberships_via_user.role ?= \"admin\"))",
     "authAlert": {
-      "enabled": true,
+      "enabled": false,
       "emailTemplate": {
         "subject": "Login from a new location",
         "body": "<p>Hello,</p>\n<p>We noticed a login to your {APP_NAME} account from a new location.</p>\n<p>If this was you, you may disregard this email.</p>\n<p><strong>If this wasn't you, you should immediately change your {APP_NAME} account password to revoke access from all other locations.</strong></p>\n<p>\n  Thanks,<br/>\n  {APP_NAME} team\n</p>"
@@ -1281,7 +1281,7 @@
     "id": "_pb_users_auth_",
     "listRule": "// 1. Every user can see their own record\nid = @request.auth.id ||\n// 2. Operators can see all users (for owner selection, user management)\n@request.auth.is_operator = true ||\n// 3. Org Admins/Owners can see users in their current org\n(\n  @request.auth.current_organization != \"\" &&\n  @request.auth.memberships_via_user.organization ?= @request.auth.current_organization &&\n  (@request.auth.memberships_via_user.role ?= \"owner\" || @request.auth.memberships_via_user.role ?= \"admin\") &&\n  memberships_via_user.organization ?= @request.auth.current_organization\n)",
     "viewRule": "// 1. Every user can see their own record\nid = @request.auth.id ||\n// 2. Operators can see all users\n@request.auth.is_operator = true ||\n// 3. Org Admins/Owners can see users in their current org\n(\n  @request.auth.current_organization != \"\" &&\n  @request.auth.memberships_via_user.organization ?= @request.auth.current_organization &&\n  (@request.auth.memberships_via_user.role ?= \"owner\" || @request.auth.memberships_via_user.role ?= \"admin\") &&\n  memberships_via_user.organization ?= @request.auth.current_organization\n)",
-    "createRule": "// Operators can create users (for org onboarding).\n@request.auth.is_operator = true\n||\n// Anonymous self-registration -- but ONLY for an address that already has a\n// pending invite. AcceptInviteView has to create the account unauthenticated\n// (it cannot call /api/tenancy/accept-invite, which requires auth, until the\n// account exists), so this branch must stay open. accept-invite deletes the\n// invite row, so the gate closes behind itself.\n// Exact-match on email, consistent with the accept-invite handler's own check.\n// NOTE: enabling users.oauth2 will route first-time OAuth2 logins through this\n// same rule; uninvited addresses would be rejected here.\n(\n  @request.auth.id = ''\n  && @request.body.is_operator:isset = false\n  && @collection.invites.email ?= @request.body.email\n)",
+    "createRule": "// Operators can create users (for org onboarding).\n@request.auth.is_operator = true\n||\n// Anonymous self-registration -- but ONLY for an address that already has a\n// pending invite. AcceptInviteView has to create the account unauthenticated\n// (it cannot call /api/tenancy/accept-invite, which requires auth, until the\n// account exists), so this branch must stay open. accept-invite deletes the\n// invite row, so the gate closes behind itself.\n// Exact-match on email, consistent with the accept-invite handler's own check.\n// NOTE: enabling users.oauth2 will route first-time OAuth2 logins through this\n// same rule; uninvited addresses would be rejected here.\n(\n  @request.auth.id = ''\n  && @request.body.is_operator:isset = false\n  && @collection.invites.email ?= @request.body.email\n  // current_organization is NOT settable at registration. The update rule\n  // freezes it to organizations you hold a membership in, but this branch is\n  // anonymous and could not check membership even in principle -- there is no\n  // auth record yet. Leaving it unset is correct: accept-invite fills it in\n  // from the invite once the account exists. Without this clause an invited\n  // registrant could name the id of any organization and then read that\n  // inventory, because the read rules scope on exactly this field.\n  && (@request.body.current_organization:isset = false || @request.body.current_organization = \"\")\n)",
     "updateRule": "// Only your own record.\nid = @request.auth.id\n&&\n// is_operator is NOT grantable through the API. Without this clause any\n// authenticated user can PATCH themselves to platform operator, which reads\n// every tenant's data (including audit_logs). Granting it is superuser\n// (admin panel) or `bootstrap` CLI only -- both bypass API rules.\n@request.body.is_operator:isset = false\n&&\n// You may only switch into an organization you are actually a member of.\n(\n  @request.body.current_organization:isset = false\n  || @request.auth.memberships_via_user.organization ?= @request.body.current_organization\n)",
     "deleteRule": "// Users can only delete their own account.\nid = @request.auth.id",
     "name": "users",
@@ -1849,10 +1849,10 @@
   },
   {
     "id": "pbc_143112578",
-    "listRule": "// Users see their active organization's types; a leaf node mirrors its own organization's types.\n(@request.auth.collectionName = \"users\" && \norganization = @request.auth.current_organization) || \n(@request.auth.collectionName = \"leaf_nodes\" && organization = @request.auth.organization)",
-    "viewRule": "// Users see their active organization's types; a leaf node mirrors its own organization's types.\n(@request.auth.collectionName = \"users\" && \norganization = @request.auth.current_organization) || \n(@request.auth.collectionName = \"leaf_nodes\" && organization = @request.auth.organization)",
+    "listRule": "// Users see their active organization types.\n// Sentinel guard: in PocketBase an empty string equals an empty string, so a\n// blank organization must never scope a read. Do not put an apostrophe in a\n// rule comment: quotes are tokenized before comments are stripped, so one\n// stray apostrophe re-pairs every quote after it and the rule stops parsing.\n// See migrations/schema_update_tenancy_sentinel.go.\n(@request.auth.collectionName = \"users\" && @request.auth.current_organization != \"\" && organization = @request.auth.current_organization && @request.auth.memberships_via_user.organization ?= @request.auth.current_organization)",
+    "viewRule": "// Users see their active organization types.\n// Sentinel guard: in PocketBase an empty string equals an empty string, so a\n// blank organization must never scope a read. Do not put an apostrophe in a\n// rule comment: quotes are tokenized before comments are stripped, so one\n// stray apostrophe re-pairs every quote after it and the rule stops parsing.\n// See migrations/schema_update_tenancy_sentinel.go.\n(@request.auth.collectionName = \"users\" && @request.auth.current_organization != \"\" && organization = @request.auth.current_organization && @request.auth.memberships_via_user.organization ?= @request.auth.current_organization)",
     "createRule": "// Only Admins or Owners can create types for their active organization.\n@request.auth.collectionName = \"users\" && \n@request.body.organization = @request.auth.current_organization && \n(@request.auth.memberships_via_user.organization ?= @request.auth.current_organization && \n (@request.auth.memberships_via_user.role ?= \"owner\" || @request.auth.memberships_via_user.role ?= \"admin\"))",
-    "updateRule": "// 1. Must be Admin/Owner.\n// 2. Must belong to active org.\n// 3. Prevent organization field tampering.\n// 4. Freeze `code`: it is the join key a seeded or mirrored catalog\n//    matches on, so changing it silently re-points records of this type.\n//    Same term and the same reason as leaf_nodes.code -- see ADR 0002 in\n//    platform-docs.\norganization = @request.auth.current_organization && \n(@request.auth.memberships_via_user.organization ?= @request.auth.current_organization && \n (@request.auth.memberships_via_user.role ?= \"owner\" || @request.auth.memberships_via_user.role ?= \"admin\")) && \n@request.body.organization:changed = false &&\n@request.body.code:changed = false",
+    "updateRule": "// 1. Must be Admin/Owner.\n// 2. Must belong to active org.\n// 3. Prevent organization field tampering.\n// 4. Freeze `code`: it is the join key a seeded or mirrored catalog\n//    matches on, so changing it silently re-points records of this type.\n//    Same term and the same reason as things.code -- see ADR 0002 in\n//    platform-docs.\norganization = @request.auth.current_organization && \n(@request.auth.memberships_via_user.organization ?= @request.auth.current_organization && \n (@request.auth.memberships_via_user.role ?= \"owner\" || @request.auth.memberships_via_user.role ?= \"admin\")) && \n@request.body.organization:changed = false &&\n@request.body.code:changed = false",
     "deleteRule": "// Only Admins or Owners can delete types.\norganization = @request.auth.current_organization && \n(@request.auth.memberships_via_user.organization ?= @request.auth.current_organization && \n (@request.auth.memberships_via_user.role ?= \"owner\" || @request.auth.memberships_via_user.role ?= \"admin\"))",
     "name": "location_types",
     "type": "base",
@@ -1964,10 +1964,10 @@
   },
   {
     "id": "pbc_1942858786",
-    "listRule": "(@request.auth.collectionName = \"users\" && organization = @request.auth.current_organization) || \n(@request.auth.collectionName = \"leaf_nodes\" && organization = @request.auth.organization)",
-    "viewRule": "(@request.auth.collectionName = \"users\" && organization = @request.auth.current_organization) || \n(@request.auth.collectionName = \"leaf_nodes\" && organization = @request.auth.organization)",
+    "listRule": "// Sentinel guard: in PocketBase an empty string equals an empty string, so a\n// blank organization must never scope a read. Do not put an apostrophe in a\n// rule comment: quotes are tokenized before comments are stripped, so one\n// stray apostrophe re-pairs every quote after it and the rule stops parsing.\n// See migrations/schema_update_tenancy_sentinel.go.\n(@request.auth.collectionName = \"users\" && @request.auth.current_organization != \"\" && organization = @request.auth.current_organization && @request.auth.memberships_via_user.organization ?= @request.auth.current_organization)",
+    "viewRule": "// Sentinel guard: in PocketBase an empty string equals an empty string, so a\n// blank organization must never scope a read. Do not put an apostrophe in a\n// rule comment: quotes are tokenized before comments are stripped, so one\n// stray apostrophe re-pairs every quote after it and the rule stops parsing.\n// See migrations/schema_update_tenancy_sentinel.go.\n(@request.auth.collectionName = \"users\" && @request.auth.current_organization != \"\" && organization = @request.auth.current_organization && @request.auth.memberships_via_user.organization ?= @request.auth.current_organization)",
     "createRule": "// 1. Must be authenticated as a user holding an inventory role in the active\n//    organization. This rule had no role check at all, which let `dashboard` create\n//    locations.\n// 2. The organization assigned to the new record must match the active context.\n@request.auth.collectionName = \"users\" &&\n@request.body.organization = @request.auth.current_organization &&\n(@request.auth.memberships_via_user.organization ?= @request.auth.current_organization &&\n   (@request.auth.memberships_via_user.role ?= \"owner\" ||\n    @request.auth.memberships_via_user.role ?= \"admin\" ||\n    @request.auth.memberships_via_user.role ?= \"member\"))",
-    "updateRule": "// 1. Must be authenticated as a user holding an inventory role in the active\n//    organization (see createRule -- this had no role check either).\n// 2. Must belong to the current active organization.\n// 3. Cannot change the organization ID (prevents moving data between tenants).\n// 4. Freeze `code`: a sibling app resolves a ticket to this site by\n//    (organization, code), and the code may be printed on a label. Changing\n//    it orphans every history that points here. Same term and the same\n//    reason as leaf_nodes.code -- see ADR 0002 in platform-docs.\n@request.auth.collectionName = \"users\" &&\norganization = @request.auth.current_organization &&\n@request.body.organization:changed = false &&\n@request.body.code:changed = false &&\n(@request.auth.memberships_via_user.organization ?= @request.auth.current_organization &&\n   (@request.auth.memberships_via_user.role ?= \"owner\" ||\n    @request.auth.memberships_via_user.role ?= \"admin\" ||\n    @request.auth.memberships_via_user.role ?= \"member\"))",
+    "updateRule": "// 1. Must be authenticated as a user holding an inventory role in the active\n//    organization (see createRule -- this had no role check either).\n// 2. Must belong to the current active organization.\n// 3. Cannot change the organization ID (prevents moving data between tenants).\n// 4. Freeze `code`: a sibling app resolves a ticket to this site by\n//    (organization, code), and the code may be printed on a label. Changing\n//    it orphans every history that points here. Same term and the same\n//    reason as things.code -- see ADR 0002 in platform-docs.\n@request.auth.collectionName = \"users\" &&\norganization = @request.auth.current_organization &&\n@request.body.organization:changed = false &&\n@request.body.code:changed = false &&\n(@request.auth.memberships_via_user.organization ?= @request.auth.current_organization &&\n   (@request.auth.memberships_via_user.role ?= \"owner\" ||\n    @request.auth.memberships_via_user.role ?= \"admin\" ||\n    @request.auth.memberships_via_user.role ?= \"member\"))",
     "deleteRule": "// High-impact actions like deletion should usually be restricted to management roles.\norganization = @request.auth.current_organization && \n(@request.auth.memberships_via_user.organization ?= @request.auth.current_organization && \n (@request.auth.memberships_via_user.role ?= \"owner\" || @request.auth.memberships_via_user.role ?= \"admin\"))",
     "name": "locations",
     "type": "base",
@@ -2059,7 +2059,13 @@
         "id": "file3043290937",
         "maxSelect": 1,
         "maxSize": 0,
-        "mimeTypes": [],
+        "mimeTypes": [
+          "image/jpeg",
+          "image/png",
+          "image/svg+xml",
+          "image/gif",
+          "image/webp"
+        ],
         "name": "floorplan",
         "presentable": false,
         "protected": false,
@@ -2249,8 +2255,8 @@
   },
   {
     "id": "pbc_4029046258",
-    "listRule": "// Operators can see all NATS accounts\n@request.auth.is_operator = true\n||\n// Regular users: only records belonging to their active organization context\n(@request.auth.collectionName = \"users\" &&\norganization = @request.auth.current_organization)\n\n// NOTE: no leaf_nodes branch -- see nats_users. The account JWT reaches an edge\n// box through GET /api/leaf/bootstrap.",
-    "viewRule": "// Operators can see all NATS accounts\n@request.auth.is_operator = true\n||\n// Regular users: only records belonging to their active organization context\n(@request.auth.collectionName = \"users\" &&\norganization = @request.auth.current_organization)\n\n// NOTE: no leaf_nodes branch -- see nats_users. The account JWT reaches an edge\n// box through GET /api/leaf/bootstrap.",
+    "listRule": "// Operators can see all NATS accounts\n@request.auth.is_operator = true\n||\n// Regular users: only records belonging to their active organization context\n// Sentinel guard: in PocketBase an empty string equals an empty string, so a\n// blank organization must never scope a read. Do not put an apostrophe in a\n// rule comment: quotes are tokenized before comments are stripped, so one\n// stray apostrophe re-pairs every quote after it and the rule stops parsing.\n// See migrations/schema_update_tenancy_sentinel.go.\n(@request.auth.collectionName = \"users\" && @request.auth.current_organization != \"\" && organization = @request.auth.current_organization && @request.auth.memberships_via_user.organization ?= @request.auth.current_organization)\n\n// NOTE: no gateway branch -- see nats_users. The account JWT reaches an edge box\n// through GET /api/me/leaf-config.",
+    "viewRule": "// Operators can see all NATS accounts\n@request.auth.is_operator = true\n||\n// Regular users: only records belonging to their active organization context\n// Sentinel guard: in PocketBase an empty string equals an empty string, so a\n// blank organization must never scope a read. Do not put an apostrophe in a\n// rule comment: quotes are tokenized before comments are stripped, so one\n// stray apostrophe re-pairs every quote after it and the rule stops parsing.\n// See migrations/schema_update_tenancy_sentinel.go.\n(@request.auth.collectionName = \"users\" && @request.auth.current_organization != \"\" && organization = @request.auth.current_organization && @request.auth.memberships_via_user.organization ?= @request.auth.current_organization)\n\n// NOTE: no gateway branch -- see nats_users. The account JWT reaches an edge box\n// through GET /api/me/leaf-config.",
     "createRule": null,
     "updateRule": "// Platform operators only.\n//\n// This rule used to have an owner/admin branch that froze the six max_* limit\n// fields and organization, commented \"can only change rotate_keys\". It was a\n// deny-list, and it leaked: it still permitted writes to jwt (the signed account\n// JWT), revocations (which user JWTs the account rejects), public_key,\n// signing_public_key, signing_keys, name, description and active -- and any field\n// added later would have been tenant-writable too, silently.\n//\n// A rule cannot express \"this one field and nothing else\", so the three key\n// operations an owner/admin legitimately needs moved to a route that sets exactly\n// one field per call: POST /api/org/nats-account/keys with action = rotate |\n// add_signing | remove_signing (hooks/nats_account_routes.go).\n//\n// The limits stay operator-only on purpose: they are the resource envelope the\n// tenant was sold, so raising them is not a tenant action.\n@request.auth.is_operator = true",
     "deleteRule": null,
@@ -3078,8 +3084,8 @@
   },
   {
     "id": "pbc_93572460",
-    "listRule": "// Operators can see all Nebula CAs\n@request.auth.is_operator = true\n||\n// Regular users: only records belonging to their active organization context\n(@request.auth.collectionName = \"users\" && \norganization = @request.auth.current_organization)",
-    "viewRule": "// Operators can see all Nebula CAs\n@request.auth.is_operator = true\n||\n// Regular users: only records belonging to their active organization context\n(@request.auth.collectionName = \"users\" && \norganization = @request.auth.current_organization)",
+    "listRule": "// Operators can see all Nebula CAs\n@request.auth.is_operator = true\n||\n// Regular users: only records belonging to their active organization context\n// Sentinel guard: in PocketBase an empty string equals an empty string, so a\n// blank organization must never scope a read. Do not put an apostrophe in a\n// rule comment: quotes are tokenized before comments are stripped, so one\n// stray apostrophe re-pairs every quote after it and the rule stops parsing.\n// See migrations/schema_update_tenancy_sentinel.go.\n(@request.auth.collectionName = \"users\" && @request.auth.current_organization != \"\" && organization = @request.auth.current_organization && @request.auth.memberships_via_user.organization ?= @request.auth.current_organization)",
+    "viewRule": "// Operators can see all Nebula CAs\n@request.auth.is_operator = true\n||\n// Regular users: only records belonging to their active organization context\n// Sentinel guard: in PocketBase an empty string equals an empty string, so a\n// blank organization must never scope a read. Do not put an apostrophe in a\n// rule comment: quotes are tokenized before comments are stripped, so one\n// stray apostrophe re-pairs every quote after it and the rule stops parsing.\n// See migrations/schema_update_tenancy_sentinel.go.\n(@request.auth.collectionName = \"users\" && @request.auth.current_organization != \"\" && organization = @request.auth.current_organization && @request.auth.memberships_via_user.organization ?= @request.auth.current_organization)",
     "createRule": null,
     "updateRule": "// Platform operators only.\n//\n// As with nats_accounts.updateRule, the previous owner/admin branch was a\n// deny-list -- it froze validity_years, curve and organization and was commented\n// \"can only change rotate_keys\", a field that DOES NOT EXIST on this collection.\n// What it actually permitted was writing name, certificate and expires_at: an\n// owner or admin could replace the organization's Nebula CA certificate, the trust\n// anchor for its entire overlay network.\n//\n// There is no tenant-triggered CA rotation today because there is no trigger field\n// for one. Rolling a CA is an operator operation. If that changes, add a route\n// (see hooks/nats_account_routes.go) rather than a branch here.\n@request.auth.is_operator = true",
     "deleteRule": null,
@@ -3351,8 +3357,8 @@
     "listRule": "@request.auth.id != '' && (@request.auth.is_operator = true || (@collection.memberships.user.id ?= @request.auth.id && @collection.memberships.organization.id ?= id))",
     "viewRule": "@request.auth.id != '' && (@request.auth.is_operator = true || (@collection.memberships.user.id ?= @request.auth.id && @collection.memberships.organization.id ?= id))",
     "createRule": "@request.auth.id != '' && @request.auth.is_operator = true",
-    "updateRule": "// Platform operators only. An organization record carries the tenancy flags\n// (managed / is_operator_org / is_system_org) and drives NATS account + Nebula CA\n// provisioning, so it is not tenant-editable: an org owner has no update path.\n//\n// The owner branch that used to live here had no UI behind it anyway -- the only\n// view that writes this collection is admin/OrganizationFormView, whose route is\n// operator-gated.\n//\n// Freeze `code`: it roots the operator-signed subject rewrite and is printed\n// on physical labels, so changing it silently orphans both -- the subject keeps\n// matching the wildcard filter and simply stops arriving. Same term and same\n// reason as leaf_nodes.code. A typo is a superuser fix, deliberately.\n@request.auth.is_operator = true &&\n@request.body.code:changed = false",
-    "deleteRule": "@request.auth.is_operator = true || owner = @request.auth.id",
+    "updateRule": "// Platform operators only. An organization record carries the tenancy flags\n// (managed / is_operator_org / is_system_org) and drives NATS account + Nebula CA\n// provisioning, so it is not tenant-editable: an org owner has no update path.\n//\n// The owner branch that used to live here had no UI behind it anyway -- the only\n// view that writes this collection is admin/OrganizationFormView, whose route is\n// operator-gated.\n//\n// Freeze `code`: it roots the operator-signed subject rewrite and is printed\n// on physical labels, so changing it silently orphans both -- the subject keeps\n// matching the wildcard filter and simply stops arriving. Same term and same\n// reason as things.code. A typo is a superuser fix, deliberately.\n@request.auth.is_operator = true &&\n@request.body.code:changed = false",
+    "deleteRule": "// Platform operators only, matching updateRule. An owner branch here was\n// worse than one on update: 15 of the 17 relations into organizations are\n// non-cascade AND non-required, so PocketBase blanks them rather than\n// deleting the rows, orphaning every thing, location, nats_account and\n// nebula_ca at organization = ''. Combined with the\n// sentinel match that is a cross-tenant read. Deleting a tenant is a\n// support action, not a self-service one.\n@request.auth.is_operator = true",
     "name": "organizations",
     "type": "base",
     "fields": [
@@ -3515,10 +3521,10 @@
   },
   {
     "id": "pbc_247972991",
-    "listRule": "// Users see their active organization's types; a leaf node mirrors its own organization's types.\n(@request.auth.collectionName = \"users\" && \norganization = @request.auth.current_organization) || \n(@request.auth.collectionName = \"leaf_nodes\" && organization = @request.auth.organization)",
-    "viewRule": "// Users see their active organization's types; a leaf node mirrors its own organization's types.\n(@request.auth.collectionName = \"users\" && \norganization = @request.auth.current_organization) || \n(@request.auth.collectionName = \"leaf_nodes\" && organization = @request.auth.organization)",
+    "listRule": "// Users see their active organization types.\n// Sentinel guard: in PocketBase an empty string equals an empty string, so a\n// blank organization must never scope a read. Do not put an apostrophe in a\n// rule comment: quotes are tokenized before comments are stripped, so one\n// stray apostrophe re-pairs every quote after it and the rule stops parsing.\n// See migrations/schema_update_tenancy_sentinel.go.\n(@request.auth.collectionName = \"users\" && @request.auth.current_organization != \"\" && organization = @request.auth.current_organization && @request.auth.memberships_via_user.organization ?= @request.auth.current_organization)",
+    "viewRule": "// Users see their active organization types.\n// Sentinel guard: in PocketBase an empty string equals an empty string, so a\n// blank organization must never scope a read. Do not put an apostrophe in a\n// rule comment: quotes are tokenized before comments are stripped, so one\n// stray apostrophe re-pairs every quote after it and the rule stops parsing.\n// See migrations/schema_update_tenancy_sentinel.go.\n(@request.auth.collectionName = \"users\" && @request.auth.current_organization != \"\" && organization = @request.auth.current_organization && @request.auth.memberships_via_user.organization ?= @request.auth.current_organization)",
     "createRule": "// Only Admins or Owners can create types for their active organization.\n@request.auth.collectionName = \"users\" && \n@request.body.organization = @request.auth.current_organization && \n(@request.auth.memberships_via_user.organization ?= @request.auth.current_organization && \n (@request.auth.memberships_via_user.role ?= \"owner\" || @request.auth.memberships_via_user.role ?= \"admin\"))",
-    "updateRule": "// 1. Must be Admin/Owner.\n// 2. Must belong to active org.\n// 3. Prevent organization field tampering.\n// 4. Freeze `code`: it is the join key a seeded or mirrored catalog\n//    matches on, so changing it silently re-points records of this type.\n//    Same term and the same reason as leaf_nodes.code -- see ADR 0002 in\n//    platform-docs.\norganization = @request.auth.current_organization && \n(@request.auth.memberships_via_user.organization ?= @request.auth.current_organization && \n (@request.auth.memberships_via_user.role ?= \"owner\" || @request.auth.memberships_via_user.role ?= \"admin\")) && \n@request.body.organization:changed = false &&\n@request.body.code:changed = false",
+    "updateRule": "// 1. Must be Admin/Owner.\n// 2. Must belong to active org.\n// 3. Prevent organization field tampering.\n// 4. Freeze `code`: it is the join key a seeded or mirrored catalog\n//    matches on, so changing it silently re-points records of this type.\n//    Same term and the same reason as things.code -- see ADR 0002 in\n//    platform-docs.\norganization = @request.auth.current_organization && \n(@request.auth.memberships_via_user.organization ?= @request.auth.current_organization && \n (@request.auth.memberships_via_user.role ?= \"owner\" || @request.auth.memberships_via_user.role ?= \"admin\")) && \n@request.body.organization:changed = false &&\n@request.body.code:changed = false",
     "deleteRule": "// Only Admins or Owners can delete types.\norganization = @request.auth.current_organization && \n(@request.auth.memberships_via_user.organization ?= @request.auth.current_organization && \n (@request.auth.memberships_via_user.role ?= \"owner\" || @request.auth.memberships_via_user.role ?= \"admin\"))",
     "name": "thing_types",
     "type": "base",
@@ -4043,8 +4049,8 @@
   },
   {
     "id": "pbc_1722283898",
-    "listRule": "// Users see their active organization's operations; a leaf node mirrors its own organization's operations.\n(@request.auth.collectionName = \"users\" && \norganization = @request.auth.current_organization) || \n(@request.auth.collectionName = \"leaf_nodes\" && organization = @request.auth.organization)",
-    "viewRule": "// Users see their active organization's operations; a leaf node mirrors its own organization's operations.\n(@request.auth.collectionName = \"users\" && \norganization = @request.auth.current_organization) || \n(@request.auth.collectionName = \"leaf_nodes\" && organization = @request.auth.organization)",
+    "listRule": "// Users see their active organization operations.\n// Sentinel guard: in PocketBase an empty string equals an empty string, so a\n// blank organization must never scope a read. Do not put an apostrophe in a\n// rule comment: quotes are tokenized before comments are stripped, so one\n// stray apostrophe re-pairs every quote after it and the rule stops parsing.\n// See migrations/schema_update_tenancy_sentinel.go.\n(@request.auth.collectionName = \"users\" && @request.auth.current_organization != \"\" && organization = @request.auth.current_organization && @request.auth.memberships_via_user.organization ?= @request.auth.current_organization)",
+    "viewRule": "// Users see their active organization operations.\n// Sentinel guard: in PocketBase an empty string equals an empty string, so a\n// blank organization must never scope a read. Do not put an apostrophe in a\n// rule comment: quotes are tokenized before comments are stripped, so one\n// stray apostrophe re-pairs every quote after it and the rule stops parsing.\n// See migrations/schema_update_tenancy_sentinel.go.\n(@request.auth.collectionName = \"users\" && @request.auth.current_organization != \"\" && organization = @request.auth.current_organization && @request.auth.memberships_via_user.organization ?= @request.auth.current_organization)",
     "createRule": "@request.auth.collectionName = \"users\" && \n@request.body.organization = @request.auth.current_organization && \n(@request.auth.memberships_via_user.organization ?= @request.auth.current_organization && \n (@request.auth.memberships_via_user.role ?= \"owner\" || @request.auth.memberships_via_user.role ?= \"admin\"))",
     "updateRule": "organization = @request.auth.current_organization && \n(@request.auth.memberships_via_user.organization ?= @request.auth.current_organization && \n (@request.auth.memberships_via_user.role ?= \"owner\" || @request.auth.memberships_via_user.role ?= \"admin\")) && \n@request.body.organization:changed = false",
     "deleteRule": "organization = @request.auth.current_organization && \n(@request.auth.memberships_via_user.organization ?= @request.auth.current_organization && \n (@request.auth.memberships_via_user.role ?= \"owner\" || @request.auth.memberships_via_user.role ?= \"admin\"))",
@@ -4163,14 +4169,15 @@
     "system": false
   },
   {
-    "id": "pbc_3920100277",
-    "listRule": "// A leaf node authenticating as itself sees only its own record.\n// A user sees all leaf nodes belonging to their active organization.\n(@request.auth.collectionName = \"leaf_nodes\" && id = @request.auth.id) || \n(@request.auth.collectionName = \"users\" && organization = @request.auth.current_organization)",
-    "viewRule": "// A leaf node authenticating as itself sees only its own record.\n// A user sees all leaf nodes belonging to their active organization.\n(@request.auth.collectionName = \"leaf_nodes\" && id = @request.auth.id) || \n(@request.auth.collectionName = \"users\" && organization = @request.auth.current_organization)",
-    "createRule": "// Only Admins or Owners can create leaf nodes for their active organization.\n@request.auth.collectionName = \"users\" && \n@request.body.organization = @request.auth.current_organization && \n(@request.auth.memberships_via_user.organization ?= @request.auth.current_organization && \n (@request.auth.memberships_via_user.role ?= \"owner\" || @request.auth.memberships_via_user.role ?= \"admin\"))",
-    "updateRule": "// 1. Must be Admin/Owner.\n// 2. Must belong to active org.\n// 3. Prevent organization field tampering.\n// 4. Freeze `code`: it is the KV key prefix and the JetStream domain suffix,\n//    so changing it silently orphans everything the edge already wrote.\norganization = @request.auth.current_organization && \n(@request.auth.memberships_via_user.organization ?= @request.auth.current_organization && \n (@request.auth.memberships_via_user.role ?= \"owner\" || @request.auth.memberships_via_user.role ?= \"admin\")) && \n@request.body.organization:changed = false &&\n@request.body.code:changed = false",
-    "deleteRule": "// Only Admins or Owners can delete leaf nodes.\norganization = @request.auth.current_organization && \n(@request.auth.memberships_via_user.organization ?= @request.auth.current_organization && \n (@request.auth.memberships_via_user.role ?= \"owner\" || @request.auth.memberships_via_user.role ?= \"admin\"))",
-    "name": "leaf_nodes",
-    "type": "auth",
+    "id": "pbc_242159415",
+    "listRule": null,
+    "viewRule": null,
+    "createRule": null,
+    "updateRule": null,
+    "deleteRule": null,
+    "name": "email_templates",
+    "type": "base",
+    "system": false,
     "fields": [
       {
         "autogeneratePattern": "[a-z0-9]{15}",
@@ -4187,93 +4194,59 @@
         "type": "text"
       },
       {
-        "cost": 0,
-        "hidden": true,
-        "id": "password901924565",
-        "max": 0,
-        "min": 8,
-        "name": "password",
-        "pattern": "",
-        "presentable": false,
-        "required": true,
-        "system": true,
-        "type": "password"
-      },
-      {
-        "autogeneratePattern": "[a-zA-Z0-9]{50}",
-        "hidden": true,
-        "id": "text2504183744",
-        "max": 60,
-        "min": 30,
-        "name": "tokenKey",
-        "pattern": "",
-        "presentable": false,
+        "autogeneratePattern": "",
+        "hidden": false,
+        "id": "text2324736937",
+        "max": 64,
+        "min": 1,
+        "name": "key",
+        "pattern": "^[a-z0-9_]+$",
+        "presentable": true,
         "primaryKey": false,
         "required": true,
-        "system": true,
-        "type": "text"
-      },
-      {
-        "hidden": false,
-        "id": "bool1547992806",
-        "name": "emailVisibility",
-        "presentable": false,
-        "required": true,
-        "system": true,
-        "type": "bool"
-      },
-      {
-        "hidden": true,
-        "id": "bool256245529",
-        "name": "verified",
-        "presentable": false,
-        "required": false,
-        "system": true,
-        "type": "bool"
-      },
-      {
-        "cascadeDelete": false,
-        "collectionId": "pbc_2873630990",
-        "hidden": false,
-        "id": "relation3253625724",
-        "maxSelect": 1,
-        "minSelect": 0,
-        "name": "organization",
-        "presentable": false,
-        "required": false,
         "system": false,
-        "type": "relation"
-      },
-      {
-        "exceptDomains": null,
-        "hidden": false,
-        "id": "email3885137012",
-        "name": "email",
-        "onlyDomains": null,
-        "presentable": false,
-        "required": true,
-        "system": true,
-        "type": "email"
+        "type": "text"
       },
       {
         "autogeneratePattern": "",
         "hidden": false,
-        "id": "text1579384326",
-        "max": 0,
+        "id": "text4224597626",
+        "max": 255,
         "min": 0,
-        "name": "name",
+        "name": "subject",
         "pattern": "",
         "presentable": false,
         "primaryKey": false,
-        "required": false,
+        "required": true,
         "system": false,
         "type": "text"
+      },
+      {
+        "convertURLs": false,
+        "hidden": false,
+        "id": "editor3685223346",
+        "maxSize": 0,
+        "name": "body",
+        "presentable": false,
+        "required": true,
+        "system": false,
+        "type": "editor",
+        "help": "HTML fragment only -- no <html>/<body> wrapper, the platform adds one. Placeholders for org_invite: {{.OrgName}} {{.InviterName}} {{.Role}} {{.InviteLink}} {{.ExpiresAt}} {{.AppName}}. A template that fails to render falls back to the built-in copy and logs an error."
+      },
+      {
+        "hidden": false,
+        "id": "bool1260321794",
+        "name": "active",
+        "presentable": false,
+        "required": false,
+        "system": false,
+        "type": "bool"
       },
       {
         "autogeneratePattern": "",
         "hidden": false,
         "id": "text1843675174",
-        "max": 0,
+        "max": 255,
         "min": 0,
         "name": "description",
         "pattern": "",
@@ -4282,102 +4255,6 @@
         "required": false,
         "system": false,
         "type": "text"
-      },
-      {
-        "autogeneratePattern": "",
-        "hidden": false,
-        "id": "text1997877400",
-        "max": 0,
-        "min": 0,
-        "name": "code",
-        "pattern": "",
-        "presentable": false,
-        "primaryKey": false,
-        "required": false,
-        "system": false,
-        "type": "text"
-      },
-      {
-        "autogeneratePattern": "",
-        "hidden": false,
-        "id": "text7100000001",
-        "max": 0,
-        "min": 0,
-        "name": "domain",
-        "pattern": "",
-        "presentable": false,
-        "primaryKey": false,
-        "required": false,
-        "system": false,
-        "type": "text"
-      },
-      {
-        "hidden": false,
-        "id": "json7100000002",
-        "maxSize": 0,
-        "name": "synced_collections",
-        "presentable": false,
-        "required": false,
-        "system": false,
-        "type": "json"
-      },
-      {
-        "cascadeDelete": false,
-        "collectionId": "pbc_1942858786",
-        "hidden": false,
-        "id": "relation1587448267",
-        "maxSelect": 1,
-        "minSelect": 0,
-        "name": "location",
-        "presentable": false,
-        "required": false,
-        "system": false,
-        "type": "relation"
-      },
-      {
-        "cascadeDelete": false,
-        "collectionId": "pbc_4097575383",
-        "hidden": false,
-        "id": "relation3991680165",
-        "maxSelect": 1,
-        "minSelect": 0,
-        "name": "nats_user",
-        "presentable": false,
-        "required": false,
-        "system": false,
-        "type": "relation"
-      },
-      {
-        "cascadeDelete": false,
-        "collectionId": "pbc_789448849",
-        "hidden": false,
-        "id": "relation324049829",
-        "maxSelect": 1,
-        "minSelect": 0,
-        "name": "nebula_host",
-        "presentable": false,
-        "required": false,
-        "system": false,
-        "type": "relation"
-      },
-      {
-        "hidden": false,
-        "id": "json1326724116",
-        "maxSize": 0,
-        "name": "metadata",
-        "presentable": false,
-        "required": false,
-        "system": false,
-        "type": "json"
-      },
-      {
-        "hidden": false,
-        "id": "bool7200000002",
-        "name": "active",
-        "presentable": false,
-        "required": false,
-        "system": false,
-        "type": "bool"
       },
       {
         "hidden": false,
@@ -4401,75 +4278,7 @@
       }
     ],
     "indexes": [
-      "CREATE UNIQUE INDEX `idx_tokenKey_pbc_3920100277` ON `leaf_nodes` (`tokenKey`)",
-      "CREATE UNIQUE INDEX `idx_email_pbc_3920100277` ON `leaf_nodes` (`email`) WHERE `email` != ''",
-      "CREATE UNIQUE INDEX `idx_leaf_nodes_org_code` ON `leaf_nodes` (`organization`, `code`) WHERE `code` != ''"
-    ],
-    "system": false,
-    "authRule": "// A deactivated leaf node cannot obtain a new auth token, so leaf-sync stops\n// pulling config and GET /api/leaf/bootstrap stops answering it.\n//\n// Same caveat and same remedy as the things authRule: this is checked at the\n// auth endpoint only, and hooks/active_flag.go refreshes tokenKey and revokes\n// the linked NATS identity on deactivation so the edge box actually goes dark.\n// leaf_nodes has no member-level write path -- create/update are already\n// owner/admin -- so `active` needs no extra field freeze.\nactive = true",
-    "manageRule": "// Org Admins/Owners may manage (e.g. reset the PocketBase password of) their organization's leaf nodes.\norganization = @request.auth.current_organization && \n(@request.auth.memberships_via_user.organization ?= @request.auth.current_organization && \n (@request.auth.memberships_via_user.role ?= \"owner\" || @request.auth.memberships_via_user.role ?= \"admin\"))",
-    "authAlert": {
-      "enabled": true,
-      "emailTemplate": {
-        "subject": "Login from a new location",
-        "body": "<p>Hello,</p>\n<p>We noticed a login to your {APP_NAME} account from a new location.</p>\n<p>If this was you, you may disregard this email.</p>\n<p><strong>If this wasn't you, you should immediately change your {APP_NAME} account password to revoke access from all other locations.</strong></p>\n<p>\n  Thanks,<br/>\n  {APP_NAME} team\n</p>"
-      }
-    },
-    "oauth2": {
-      "mappedFields": {
-        "id": "",
-        "name": "",
-        "username": "",
-        "avatarURL": ""
-      },
-      "enabled": false
-    },
-    "passwordAuth": {
-      "enabled": true,
-      "identityFields": [
-        "email"
-      ]
-    },
-    "mfa": {
-      "enabled": false,
-      "duration": 1800,
-      "rule": ""
-    },
-    "otp": {
-      "enabled": false,
-      "duration": 180,
-      "length": 8,
-      "emailTemplate": {
-        "subject": "OTP for {APP_NAME}",
-        "body": "<p>Hello,</p>\n<p>Your one-time password is: <strong>{OTP}</strong></p>\n<p><i>If you didn't ask for the one-time password, you can ignore this email.</i></p>\n<p>\n  Thanks,<br/>\n  {APP_NAME} team\n</p>"
-      }
-    },
-    "authToken": {
-      "duration": 604800
-    },
-    "passwordResetToken": {
-      "duration": 1800
-    },
-    "emailChangeToken": {
-      "duration": 1800
-    },
-    "verificationToken": {
-      "duration": 259200
-    },
-    "fileToken": {
-      "duration": 180
-    },
-    "verificationTemplate": {
-      "subject": "Verify your {APP_NAME} email",
-      "body": "<p>Hello,</p>\n<p>Thank you for joining us at {APP_NAME}.</p>\n<p>Click on the button below to verify your email address.</p>\n<p>\n  <a class=\"btn\" href=\"{APP_URL}/_/#/auth/confirm-verification/{TOKEN}\" target=\"_blank\" rel=\"noopener\">Verify</a>\n</p>\n<p>\n  Thanks,<br/>\n  {APP_NAME} team\n</p>"
-    },
-    "resetPasswordTemplate": {
-      "subject": "Reset your {APP_NAME} password",
-      "body": "<p>Hello,</p>\n<p>Click on the button below to reset your password.</p>\n<p>\n  <a class=\"btn\" href=\"{APP_URL}/_/#/auth/confirm-password-reset/{TOKEN}\" target=\"_blank\" rel=\"noopener\">Reset password</a>\n</p>\n<p><i>If you didn't ask to reset your password, you can ignore this email.</i></p>\n<p>\n  Thanks,<br/>\n  {APP_NAME} team\n</p>"
-    },
-    "confirmEmailChangeTemplate": {
-      "subject": "Confirm your {APP_NAME} new email address",
-      "body": "<p>Hello,</p>\n<p>Click on the button below to confirm your new email address.</p>\n<p>\n  <a class=\"btn\" href=\"{APP_URL}/_/#/auth/confirm-email-change/{TOKEN}\" target=\"_blank\" rel=\"noopener\">Confirm new email</a>\n</p>\n<p><i>If you didn't ask to change your email address, you can ignore this email.</i></p>\n<p>\n  Thanks,<br/>\n  {APP_NAME} team\n</p>"
-    }
+      "CREATE UNIQUE INDEX `idx_email_templates_key` ON `email_templates` (`key`)"
+    ]
   }
 ]

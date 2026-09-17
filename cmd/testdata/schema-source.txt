@@ -3,11 +3,11 @@ field table against it. This file is DATA, not the source of truth -- the source
 is the platform repo.
 
 source:   https://github.com/stone-age-io/platform/blob/main/schema.json
-platform: repo at 8cf37fe
-schema.json last changed in platform commit: fe2fe81, which dropped the
-          message_schemas collection, thing_types.capabilities,
-          thing_types.nats_role and thing_type_operations.schema
-copied:   2026-09-07
+platform: repo at 754e421
+schema.json last changed in platform commit: 8c40356, which dropped the
+          leaf_nodes collection (an edge site is a Thing now) and added the
+          superuser-only email_templates collection
+copied:   2026-09-16
 
 Refresh with:
   cp ../platform/schema.json cmd/testdata/schema.json

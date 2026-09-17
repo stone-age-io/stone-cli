@@ -40,7 +40,7 @@ A context bundles: `url`, `auth` (PB token + collection + email), `current_organ
 Context names must match `^[A-Za-z0-9_-]{1,50}$` — they're used as filesystem paths.
 
 ### Entity CRUD is data-driven
-`cmd/entity.go` is the heart of typed CRUD. It declares 17 `EntitySpec` values (thing, location, location-type, thing-type, thing-type-operation, organization, membership, invite, nats-user, nats-role, nats-import, nats-export, nats-account, nebula-network, nebula-host, nebula-ca, leaf-node). Each spec lists:
+`cmd/entity.go` is the heart of typed CRUD. It declares 16 `EntitySpec` values (thing, location, location-type, thing-type, thing-type-operation, organization, membership, invite, nats-user, nats-role, nats-import, nats-export, nats-account, nebula-network, nebula-host, nebula-ca). Each spec lists:
 - `Collection` — PocketBase collection name
 - `OrgScoped` — auto-inject `organization` on create / filter by it on `ls`
 - `KeyColumns` — table columns shown by `ls`
@@ -86,10 +86,17 @@ intentional — do not "fix" them:
 - **File fields** (`locations.floorplan`, `organizations.logo`) — no multipart
   upload path in the client.
 
-Conversely, `things.active` and `leaf_nodes.active` **are** writable flags, and
-they are not labels: the platform's `hooks/active_flag.go` treats the flip as a
-decommission (refreshes `tokenKey` to kill live sessions, sets `revoke` on the
-linked NATS identity). Help text must say so.
+Conversely, `things.active` **is** a writable flag, and it is not a label: the
+platform's `hooks/active_flag.go` treats the flip as a decommission (refreshes
+`tokenKey` to kill live sessions, sets `revoke` on the linked NATS identity).
+Help text must say so.
+
+It is only meaningful on **update**. The same hook forces `active = true` on
+every Thing create, because `things.authRule` is `active = true` and a
+PocketBase bool has no schema default — an omitted field would land as false and
+the device could never authenticate. So `thing create --active=false` is
+silently overridden server-side; deactivation is an update. pb-nebula forces the
+same thing on `nebula_hosts` create.
 
 To re-check drift, diff the specs against the platform's `schema.json` — the
 platform repo is normally at `../platform`.
@@ -103,8 +110,9 @@ platform's non-collection endpoints. Four are wrapped:
   `POST /api/org/nats-account/keys`.
 - `cmd/nebula.go` — `POST /api/org/nebula-ca/rotate` and
   `GET /api/org/nebula/cert-audit`.
+- `cmd/thing.go` — `POST /api/org/things`, surfaced as `stone thing provision`.
 
-Three of the four exist because an API rule cannot express a single-field
+Three of the first four exist because an API rule cannot express a single-field
 allowlist: permitting one trigger field through an update rule means a deny-list
 over every other, which silently opens the moment someone adds a field. None of
 them takes a record id — the target is derived from the caller's identity or
@@ -115,6 +123,22 @@ a host certificate still matches its network means parsing a Nebula certificate,
 which no client can do. It answers in **ids**, and `cmd/nebula.go` resolves them
 to hostnames before printing — falling back to the bare id rather than dropping
 the row, because a host we cannot name is still a host that needs re-signing.
+
+`POST /api/org/things` is there for a third reason: **atomicity**. Minting a
+Thing with its NATS identity and its Nebula host used to be three unguarded
+client calls, and a failure on the third orphaned a signed NATS credential and
+an allocated overlay IP. The route runs all three in one PocketBase transaction —
+and since pb-nats signs and publishes on `AfterCreateSuccess`, which PocketBase
+defers to transaction completion, a rollback means NATS was never told. It also
+needs two authority levels for one operation (a member may add inventory;
+attaching an identity is owner/admin), which no create rule can express.
+
+It is the only wrapped route that is **not** a replacement for a record write:
+`stone thing create` still does a plain collection POST, because that is what
+`apply` needs. `provision` is the one to reach for when standing up real
+hardware. It attaches to the generated `thing` command tree through
+`extraCommands` in `cmd/thing.go` — a package-level map `registerCRUD`
+consults, so entity.go does not need to know what it is.
 
 ### pb-nebula v0.3 and the library-owned fields
 

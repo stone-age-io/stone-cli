@@ -341,7 +341,7 @@ func TestVendoredSchemaLooksComplete(t *testing.T) {
 
 	// Collections the CLI drives, plus ones it deliberately does not, as a
 	// shape check on the file rather than a check on the CLI.
-	for _, want := range []string{"things", "locations", "organizations", "memberships", "nats_users", "nebula_hosts", "leaf_nodes", "audit_logs"} {
+	for _, want := range []string{"things", "locations", "organizations", "memberships", "nats_users", "nebula_hosts", "audit_logs"} {
 		if _, ok := schema[want]; !ok {
 			t.Errorf("collection %q missing: the vendored schema looks partial.\n%s", want, refreshHint)
 		}

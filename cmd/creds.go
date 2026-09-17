@@ -33,8 +33,8 @@ var natsCredsRotateCmd = &cobra.Command{
 	Short: "Rotate your own NATS credential",
 	Long: `Rotate the NATS credential linked to your own identity.
 
-Available to every role, including badge, and to things and leaf_nodes as well
-as users. Takes no id: the route derives the target from your auth token, so it
+Available to every role, including badge, and to things as well as users.
+Takes no id: the route derives the target from your auth token, so it
 can only ever rotate your own credential.
 
 Rotation is not revocation — the previous credential stays valid until it

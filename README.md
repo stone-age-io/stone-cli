@@ -191,7 +191,6 @@ apply wins, field by field, silently. If a workspace is shared, `pull` before
 Full CRUD (`ls / get / create / update / delete / edit`):
 
 - Domain: `thing`, `location`, `location-type`, `thing-type`, `thing-type-operation`
-- Edge: `leaf-node`
 - Admin: `organization`, `membership`, `invite`
 - NATS: `nats-user`, `nats-role`, `nats-import`, `nats-export`
 - Nebula: `nebula-network`, `nebula-host`
@@ -205,7 +204,7 @@ Limited CRUD (`ls / get / update / edit` only — auto-provisioned by the platfo
 ### Lookup by id or natural key
 
 `get`, `update`, `delete`, and `edit` accept either a 15-char PocketBase id or
-the entity's natural key: `code` (`thing`, `location`, `location-type`, `thing-type`, `leaf-node`),
+the entity's natural key: `code` (`thing`, `location`, `location-type`, `thing-type`),
 `hostname` (`nebula-host`), `nats_username` (`nats-user`), `email` (`invite`),
 and `name` for everything else. `membership` is id-only. Key lookups are
 exact-match and scoped to the current organization; zero or multiple matches
@@ -222,7 +221,7 @@ fail with the candidate ids listed.
 
 ### Auth-collection conveniences
 
-`thing`, `nats-user`, `nebula-host`, and `leaf-node` are PocketBase auth collections. On create
+`thing`, `nats-user`, and `nebula-host` are PocketBase auth collections. On create
 and on password change, PB requires `passwordConfirm` to match `password` and
 `emailVisibility` to be set explicitly. `stone` fills both in for you when a
 non-empty `password` is present (typed CRUD, `apply`, and `edit` all benefit).
@@ -238,6 +237,36 @@ and prints it once to **stderr**, so stdout stays clean for `jq`:
 
 `--password` and `--random-password` are mutually exclusive; exactly one must be
 passed.
+
+### Provisioning a device in one transaction
+
+`stone thing create` writes an inventory row and nothing else. For real
+hardware, prefer:
+
+```sh
+./stone thing provision --code gw-01 --name "Gateway 01"     --type <thing_type_id> --location <location_id>     --nats-mode auto     --nebula-mode auto --nebula-network <id> --nebula-ip 10.128.0.42
+```
+
+This wraps the platform's `POST /api/org/things`, which creates the Thing, its
+NATS identity and its Nebula host inside **one server-side transaction**. Doing
+it as three separate writes is what the route exists to replace: a failure on the
+third left a signed NATS credential and an allocated overlay IP owned by nothing.
+
+Each identity takes a mode:
+
+| Mode | Effect |
+| :--- | :--- |
+| `none` (default) | provision nothing |
+| `auto` | mint a new one. NATS uses the org's active account and default role unless `--nats-role` names another; Nebula needs `--nebula-network` and `--nebula-ip` (no address is allocated for you) |
+| `link` | attach an existing identity by id (`--nats-user`, `--nebula-host`) |
+
+The email (`<code>@<org-code>.thing.local`) and password are generated
+server-side, and the password is printed **once** — it is not retrievable
+afterwards. Attaching either identity requires owner or admin; a member may
+provision with both modes left at `none`.
+
+`create` is still the right call for workspace-shaped work: `apply` writes
+records, not devices.
 
 ## Credential lifecycle
 
@@ -264,8 +293,8 @@ time; the revoked one stays dead.
 > but it is not a control. Use `--revoke`.
 
 Deactivating the **device** is the broadest of the four and the one to reach for
-when hardware is retired or presumed lost. `--active=false` on a `thing` or
-`leaf-node` signs it out immediately (its existing session token is invalidated,
+when hardware is retired or presumed lost. `--active=false` on a `thing`
+signs it out immediately (its existing session token is invalidated,
 not just blocked at next login), stops it signing back in, and revokes its NATS
 credential. Reactivating issues a *fresh* credential — the old `.creds` stays
 revoked permanently, so the device must be given the new one.
