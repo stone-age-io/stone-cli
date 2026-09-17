@@ -53,6 +53,27 @@ checksum:
   name_template: 'checksums.txt'
   algorithm: sha256
 
+# The release body is NOT built here. goreleaser's changelog is a list of commit
+# subjects, and this repo's reasoning lives in CHANGELOG.md as paragraphs -- the
+# part that matters to an operator (that a flag which used to report success was
+# writing nothing) exists nowhere in the commit log. scripts/release-notes.sh
+# assembles the whole body (install prose + the changelog section for the tag)
+# and the release workflow passes it with --release-notes, which makes
+# everything below inert on a real release.
+#
+# DO NOT set `disable: true` here. It looks like the tidy way to say "the body
+# comes from elsewhere", and it silently breaks --release-notes: reading that
+# file is a step INSIDE the changelog pipe, so disabling the pipe skips the read
+# and publishes an empty body. The platform shipped v0.5.0 that way and had to
+# edit it by hand afterwards. The settings below are the fallback for someone
+# running goreleaser without the flag, and the only thing that suppresses them is
+# the flag itself.
+#
+# release.header / release.footer are gone for the adjacent reason: goreleaser
+# does not apply them to a --release-notes body, so keeping them here would be
+# prose that renders on a manual run and vanishes on a real one. The install
+# prose lives in scripts/release-notes.sh, which is the one place the body is
+# assembled.
 changelog:
   sort: asc
   filters:
@@ -66,27 +87,9 @@ release:
   github:
     owner: stone-age-io
     name: stone-cli
-  header: |
-    ## stone {{ .Tag }}
-
-    The command-line client for the Stone-Age.io platform. Extract the binary
-    onto a laptop or CI runner and point it at a running server:
-
-    ```
-    stone context create local --url https://platform.example.com
-    stone auth login
-    ```
-
-    **`stone` is not `stone-age`.** This is the client; `stone-age` is the
-    control-plane server, released from the
-    [platform](https://github.com/stone-age-io/platform) repo. They share a
-    project, not a job.
-  footer: |
-    Pre-1.0: treat a minor version as potentially breaking, and pin what you
-    deploy.
-
-    The CLI's field list is hand-maintained rather than derived from the
-    platform's `schema.json`, so a given `stone` can lag a platform release. If a
-    field exists in the console but has no flag, that is why.
-
-    **Full changelog**: https://github.com/stone-age-io/stone-cli/commits/{{ .Tag }}
+  # A tag carrying a prerelease suffix (v0.3.1-rc1) is published as a GitHub
+  # prerelease. The default is false, which would mark a release candidate as
+  # "Latest" on the repository front page and hand it to anyone following the
+  # releases feed. It pairs with release-notes.sh, which reads `## [Unreleased]`
+  # for exactly those tags.
+  prerelease: auto

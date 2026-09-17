@@ -461,4 +461,36 @@ A failure then tells you exactly what moved. Add the field to the spec, or add i
 to `deliberatelyOmitted` in `cmd/schema_drift_test.go` with the reason — "why is
 there no flag for this" is the question that list exists to answer.
 `cmd/testdata/schema-source.txt` records which platform version the copy came
-from.
+from, on a `platform release:` line the release notes read back.
+
+### Cutting a release
+
+The release body comes from `CHANGELOG.md`, not from commit subjects — the
+reasoning in this project lives in paragraphs, and the part an operator needs
+(that a flag which used to report success was writing nothing) exists nowhere in
+the commit log.
+
+1. Promote `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD` and add the compare
+   link at the foot of the file.
+2. Refresh `cmd/testdata/schema-source.txt` if the platform moved, including its
+   `platform release:` line.
+3. Preview the body, which is worth reading before it is public:
+
+   ```sh
+   ./scripts/release-notes.sh v0.3.0
+   ```
+
+4. Tag and push. `.github/workflows/release.yml` builds the same body, hands it
+   to goreleaser with `--release-notes`, and then **reads the published release
+   back** to assert it is the one the script built.
+
+That last step is not belt-and-braces. goreleaser exits 0 whether or not it used
+the notes file, so a body that silently came out empty looks like a green run;
+the platform shipped a release that way once. A tag pushed before `[Unreleased]`
+was promoted fails at step 4's script instead, before anything is published.
+
+The CLI versions independently of the platform. They are separate artifacts on
+separate cadences, and a matching number would imply a compatibility contract
+the code does not make — where a real constraint exists it is narrower than a
+version (currently pb-nebula ≥ v0.3.0). The release notes state the platform
+release each build was tested against instead.
