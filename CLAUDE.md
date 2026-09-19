@@ -193,6 +193,41 @@ success. That is precisely the failure the drift guard exists to make loud, and
 it cannot catch this one, because the vendored schema is a copy of a file that
 never declared them either.
 
+### Relation display (`cmd/relations.go`)
+
+`ls` tables and `get`'s key/value output print a relation as the target's
+natural key rather than a PocketBase id, via PocketBase's `expand` — same query,
+no extra round trip. Seven specs had at least one column of raw ids before this.
+
+The rules, all of which have a reason that is not obvious:
+
+- **Human output only.** `-o json` / `-o yaml` never even send the `expand`
+  parameter, so the scripting surface is byte-for-byte what the server returned.
+  `edit` also fetches raw: what it opens in `$EDITOR` is PATCHed back, and a code
+  written into a relation field would be sent as one. `pull` likewise — the
+  workspace keys on ids.
+- **No `Target` on `Field`.** An expanded record carries its own
+  `collectionName`, so the label is looked up by that and uses the spec's
+  `LookupKey`. One definition of "the natural key for this entity", and it cannot
+  disagree with the platform about what a relation points at.
+- **`organization` expands although no spec declares it**; it is injected from
+  the active context, so it has no flag, but `get` still prints it.
+- **`users` has no spec** and falls back to `email`, then `name` — PocketBase
+  masks an auth record's email unless it is the caller's own, so a colleague
+  shows as their name rather than a blank.
+- **A `--fields` projection must also name `expand`** (`withExpandField`), because
+  PocketBase applies `fields` to the whole body and `expand` is a top-level key
+  like any other.
+- **A blank cell means unset or unreadable**, deliberately conflated. Printing
+  the id would defeat the column.
+
+The behaviours above were verified against a running platform rather than
+assumed, because every failure here is silent. Notably: a relation the caller
+may not read is simply absent from `expand` and the request still returns 200 —
+even with the target collection's `viewRule` set to null — so expansion cannot
+break a command that would otherwise work, and there is no fallback path.
+
+
 ### Pull / apply (GitOps)
 `cmd/sync.go`:
 - `stone pull` writes one YAML file per record into `<workspace>/<collection>/<key>.yaml`, where `<key>` is the spec's `LookupKey` value, falling back to `name`, then id. Filename collisions get a `-<id>` suffix; records are pulled sorted by id so the suffix lands on the same record across pulls. Filenames are cosmetic — apply identifies records solely by the `id` field inside the file. Org-scoped collections are filtered by `current_organization`. Server-only fields (`collectionId`, `collectionName`, `created`, `updated`, `expand`) are stripped on read (see `pb.ServerOnlyFields` / `pb.Strip`).

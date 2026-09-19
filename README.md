@@ -301,6 +301,42 @@ fail with the candidate ids listed.
 ./stone activity ls --filter 'resource_id="<id>"'       # everything done to one record
 ```
 
+### Relations read as codes, not ids
+
+Table and `get` output print a relation as the target's natural key — the same
+key you would type at `get`/`update`/`delete`:
+
+```
+$ stone thing ls
+ID               CODE       NAME       TYPE         LOCATION  ACTIVE
+sii1rtrxtadt2ad  sensor-42  Sensor 42  temp-sensor  hq        true
+```
+
+`type` and `location` are relations; before, both columns were 15-char ids.
+PocketBase resolves them in the same query via `expand`, so this costs no extra
+round trip.
+
+**`-o json` and `-o yaml` are unchanged** — they are the scripting surface and
+return exactly what the server sent, relation ids and all. The `expand`
+parameter is not even added to those requests, so a pipeline that parses `type`
+still gets an id, and `--fields id -o json` remains the way to discover one.
+`edit` is also untouched: what it opens in `$EDITOR` is PATCHed back, and a code
+in a relation field would be written as one.
+
+The label is the target entity's `LookupKey`, chosen by the collection the
+server names in the expanded record — so there is one definition of "the natural
+key for this entity" rather than a second one per relation. `users` has no
+entity of its own and falls back to `email`, then `name`: PocketBase masks an
+auth record's email unless it is your own, so a colleague shows as their name.
+
+A blank cell means the relation is unset **or** you cannot read the target.
+Those are deliberately indistinguishable here; `-o json` shows the id either
+way.
+
+**Create and update still take ids.** Relation flags (`--type`, `--location`,
+`--network-id`, …) are unchanged and want a 15-char PocketBase id. Reading is
+where the ids were unreadable; writing is where they are unambiguous.
+
 ### Auth-collection conveniences
 
 `thing`, `nats-user`, and `nebula-host` are PocketBase auth collections. On create

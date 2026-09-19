@@ -93,6 +93,19 @@ stone nebula-host get edge-west --fields hostname,overlay_ip
 stone thing ls --fields code,name -o json
 ```
 
+### Relation columns are codes when a human reads, ids when you parse
+
+`ls` tables and `get`'s key/value output print a relation as the target's
+natural key (`type` → `temp-sensor`, `location` → `hq`, `user` →
+`someone@example.com`). `-o json` and `-o yaml` are untouched and return the
+relation id the server sent.
+
+**This matters for you specifically:** to feed a relation into another command,
+read it with `-o json`, never off a table. A code in a `--type` flag is a 400.
+
+A blank relation cell means unset *or* not readable by this caller — `-o json`
+distinguishes them.
+
 ### Field flag rules
 
 - **Relations** (`--type`, `--location`, `--owner`, etc.) take a **15-char PocketBase id only**. Natural keys resolve on positional args, never on relation flags. Discover ids via `stone <type> get <key> --fields id -o json` or `stone <type> ls -o json` first.

@@ -91,7 +91,7 @@ Verbs `ls / get / create / update / delete / edit` are derived from a single dec
 | relation list (ids) | `--operations id1,id2` or repeated flag | |
 | JSON | `--metadata '{"k":"v"}'`, `--metadata @file.json`, `--metadata -` | inline, file, or stdin |
 
-Relation flags deliberately have no name-to-id resolver: discover ids via `stone <type> get <key> --fields id -o json` or `stone <type> ls -o json` first.
+Relation flags deliberately have no name-to-id resolver: discover ids via `stone <type> get <key> --fields id -o json` or `stone <type> ls -o json` first. Note that this is a WRITE-side statement — since v0.5.0 the read side prints relations as codes in table and `get` output, so `-o json` is what you use to get an id back.
 
 ### Auth-collection ergonomics
 

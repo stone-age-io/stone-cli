@@ -619,6 +619,25 @@ func buildLsCmd(spec EntitySpec) *cobra.Command {
 			extraFilter, _ := cmd.Flags().GetString("filter")
 			opts.Filter = composeOrgFilter(spec, c.CurrentOrganization, extraFilter)
 
+			cols := append([]string{"id"}, spec.KeyColumns...)
+			if fields != "" {
+				cols = splitFields(fields)
+			}
+
+			// Relation columns are asked for by name so they can be printed as
+			// codes rather than ids -- but only for a human reading a table.
+			// json and yaml are the scripting surface and get exactly what the
+			// server sends, so they are not even asked to expand. See
+			// relations.go.
+			out := resolveOutput()
+			var relCols []string
+			if out != "json" && out != "yaml" {
+				if relCols = relationColumns(spec, cols); len(relCols) > 0 {
+					opts.Expand = strings.Join(relCols, ",")
+					opts.Fields = withExpandField(fields)
+				}
+			}
+
 			// --limit is a single page rather than a truncated ListAll: the
 			// point is to stop asking the server for 40,000 things when you
 			// wanted the newest ten, so it has to reach the query, not the
@@ -626,9 +645,10 @@ func buildLsCmd(spec EntitySpec) *cobra.Command {
 			// own) or "the first n" means whatever order the server used.
 			var items []pb.Record
 			if limit, _ := cmd.Flags().GetInt("limit"); limit > 0 {
-				lr, lerr := client.List(spec.Collection, pb.ListOptions{
-					Filter: opts.Filter, Sort: opts.Sort, Fields: opts.Fields, PerPage: limit, Page: 1,
-				})
+				page := opts
+				page.PerPage = limit
+				page.Page = 1
+				lr, lerr := client.List(spec.Collection, page)
 				if lerr != nil {
 					return lerr
 				}
@@ -639,11 +659,9 @@ func buildLsCmd(spec EntitySpec) *cobra.Command {
 					return err
 				}
 			}
-			cols := append([]string{"id"}, spec.KeyColumns...)
-			if fields != "" {
-				cols = splitFields(fields)
-			}
-			return pb.PrintList(os.Stdout, items, cols, resolveOutput())
+
+			resolveRelationColumns(items, relCols)
+			return pb.PrintList(os.Stdout, items, cols, out)
 		},
 	}
 	cmd.Flags().String("filter", "", "extra PocketBase filter expression to AND with the org filter")
@@ -670,11 +688,27 @@ func buildGetCmd(spec EntitySpec) *cobra.Command {
 				return err
 			}
 			fields, _ := cmd.Flags().GetString("fields")
-			r, err := client.Get(spec.Collection, id, pb.GetOptions{Fields: fields})
+
+			// Same split as `ls`: a human reads codes, a script reads the
+			// record the server sent. `edit` deliberately shares neither path --
+			// it fetches raw, because what it opens in $EDITOR is PATCHed back
+			// and a code in a relation field would be written as one.
+			out := resolveOutput()
+			gopts := pb.GetOptions{Fields: fields}
+			var relCols []string
+			if out != "json" && out != "yaml" {
+				if relCols = relationColumnsForFields(spec, fields); len(relCols) > 0 {
+					gopts.Expand = strings.Join(relCols, ",")
+					gopts.Fields = withExpandField(fields)
+				}
+			}
+
+			r, err := client.Get(spec.Collection, id, gopts)
 			if err != nil {
 				return err
 			}
-			return pb.PrintRecord(os.Stdout, r, resolveOutput())
+			resolveRelationColumns([]pb.Record{r}, relCols)
+			return pb.PrintRecord(os.Stdout, r, out)
 		},
 	}
 	cmd.Flags().String("fields", "", "comma-separated fields to return (server-side projection)")

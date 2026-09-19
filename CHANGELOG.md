@@ -10,7 +10,43 @@ that period, and this file starts where the versioned releases do.
 
 ## [Unreleased]
 
-Nothing yet.
+### Changed
+
+- **Relations read as codes instead of PocketBase ids.** `stone thing ls` showed
+  `TYPE` and `LOCATION` as 15-char ids; it now shows `temp-sensor` and `hq`.
+  Seven specs had at least one column of raw ids — things, locations,
+  memberships, nats-users, nebula-networks, nebula-hosts and organizations —
+  and a column of ids is a column nobody can read.
+
+  PocketBase resolves it in the same query via `expand`, so this costs no extra
+  round trip. The label is the target entity's `LookupKey` — the same key you
+  would type at `get`/`update`/`delete` — chosen by the collection name the
+  server puts in the expanded record, so there is one definition of "the natural
+  key for this entity" rather than a second one written next to each relation.
+
+  **`-o json` and `-o yaml` are unchanged.** They are the scripting surface and
+  return byte-for-byte what the server sent; the `expand` parameter is not even
+  added to those requests. `--fields id -o json` is still how you discover an id,
+  and it is now also how you read a relation id back out. `edit` and `pull` are
+  untouched for the same reason: what `edit` opens in `$EDITOR` is PATCHed back,
+  and the workspace keys on ids.
+
+  **Create and update still take ids.** Relation flags are unchanged. Reading is
+  where the ids were unreadable; writing is where they are unambiguous.
+
+  Two details worth knowing. `users` has no entity of its own, so a `user` or
+  `owner` column falls back to `email`, then `name` — PocketBase masks an auth
+  record's email unless it is your own, so a colleague shows as their name. And
+  a blank relation cell means the relation is unset **or** you cannot read the
+  target; `-o json` tells them apart.
+
+  Every behaviour this relies on was checked against a running platform rather
+  than assumed, because each failure here is silent. The one that decided the
+  design: a relation the caller may not read is simply absent from the response
+  and the request still returns 200 — even with the target collection's
+  `viewRule` set to null — so expansion cannot break a command that would
+  otherwise work, and the code carries no fallback path it would never take.
+
 
 ## [0.4.0] - 2026-09-19
 
