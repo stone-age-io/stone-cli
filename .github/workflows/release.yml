@@ -17,13 +17,13 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # goreleaser derives the version and the changelog from tags, and a
           # shallow clone has neither.
           fetch-depth: 0
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           cache: true
@@ -39,12 +39,13 @@ jobs:
       - name: Build release notes from CHANGELOG.md
         run: ./scripts/release-notes.sh "$GITHUB_REF_NAME" > "$RUNNER_TEMP/release-notes.md"
 
-      - uses: goreleaser/goreleaser-action@v6
+      - uses: goreleaser/goreleaser-action@v7
         with:
-          # Pinned to the v2 line rather than 'latest'. With 'latest' the action
-          # locks to '~> v2' anyway and says so in an annotation on every run --
-          # but it would stop doing that the day GoReleaser 3 ships, and a major
-          # would arrive mid-release with no commit asking for it.
+          # Pinned to the v2 line, and kept explicit even though '~> v2' is the
+          # action's own default as of v7. A default is a promise the next major
+          # can withdraw, and the whole point of this line is that GoReleaser 3
+          # does not arrive mid-release with no commit asking for it. Writing it
+          # down costs nothing and survives the bump that changes the default.
           version: '~> v2'
           args: release --clean --release-notes=${{ runner.temp }}/release-notes.md
         env:

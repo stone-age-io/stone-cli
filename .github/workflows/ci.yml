@@ -18,9 +18,21 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      # Actions are pinned to a major and moved deliberately. These three went
+      # to their current majors when GitHub deprecated the Node 20 runtime and
+      # started forcing v4/v5/v6 onto Node 24 with an annotation on every run --
+      # a forced runtime is not a supported one, and the annotation was the
+      # warning that it would stop.
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-go@v5
+      # setup-go v6 set GOTOOLCHAIN=local, which is the one breaking change in
+      # that bump worth knowing about here: a `go` command may no longer
+      # download a newer toolchain to satisfy go.mod, it errors instead. That is
+      # the behaviour this repo wants and already had -- go-version-file means
+      # the installed Go IS the one go.mod asks for -- but it turns a go.mod
+      # bumped without touching this file from a silent toolchain fetch into a
+      # red build, which is the right way round.
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           cache: true
