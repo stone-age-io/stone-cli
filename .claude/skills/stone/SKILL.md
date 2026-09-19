@@ -37,7 +37,7 @@ State lives under `$XDG_CONFIG_HOME/stone/` (e.g. `~/.config/stone/`). It is **p
    - If empty and the user's task touches a collection the CLI auto-filters by org (`OrgScoped: true` in `cmd/entity.go` — everything except `organization` and `membership`), pick one. (`membership` carries an org relation but is intentionally not auto-filtered so users see memberships across every org; `organization` access is gated server-side by `is_operator`.)
      ```sh
      stone org ls
-     stone org switch <name>          # also writes per-org NATS creds when nats_url is set
+     stone org switch <code>          # also writes per-org NATS creds when nats_url is set
      ```
    - `org switch` always switches the org server-side. If it prints `nats-sync: skipped — <reason>`, that's expected when `nats_url` isn't set or the user has no NATS user provisioned; don't treat it as failure unless the user actually needs NATS.
 
@@ -83,6 +83,7 @@ Verbs `ls / get / create / update / delete / edit` are synthesized from a single
 | `nats-user` | `nats_username` |
 | `invite` | `email` |
 | `membership` | — id only |
+| `organization` | `code`, then `name` (both unique; the code wins a collision) |
 | everything else | `name` |
 
 `get` (alias `show`) prints one record. `--fields a,b,c` projects server-side on both `get` and `ls`; on `ls` table output the requested fields become the columns.
@@ -164,7 +165,7 @@ stone thing provision --code gw-01 --name "Gateway 01"   --type <thing_type_id> 
 
 ```sh
 stone invite accept <token>     # wraps POST /api/org/invites/accept
-stone org switch <name|id>      # separate step; also syncs the new membership's NATS creds
+stone org switch <code|name|id>      # separate step; also syncs the new membership's NATS creds
 ```
 
 The token is the `?token=` value from the invitation link, **not** the invite record's id. Matched to the caller by email address, so it only redeems an invitation issued to them. `current_organization` is set only when it was blank — that is why `org switch` follows. `200` with `alreadyMember: true` is success, `403` means a different address, `410` means expired.

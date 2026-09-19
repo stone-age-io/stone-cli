@@ -41,8 +41,8 @@ tar xzf stone_${VERSION}_linux_amd64.tar.gz     # unpacks ./stone, LICENSE, READ
 # 4) Pick an organization (mirrors users.current_organization on the server,
 #    and writes a per-org nats-cli context if --nats-url is set)
 ./stone org ls
-./stone org switch "System"
-./stone org switch "System" --set-nats-default   # also point `nats` cli at it
+./stone org switch acme                          # by code, name, or id
+./stone org switch acme --set-nats-default       # also point `nats` cli at it
 
 # 5) Create resources with typed flags
 ./stone location create --name "HQ" --code hq
@@ -282,11 +282,18 @@ Read-only (`ls / get`):
 ### Lookup by id or natural key
 
 `get`, `update`, `delete`, and `edit` accept either a 15-char PocketBase id or
-the entity's natural key: `code` (`thing`, `location`, `location-type`, `thing-type`),
-`hostname` (`nebula-host`), `nats_username` (`nats-user`), `email` (`invite`),
-and `name` for everything else. `membership` is id-only. Key lookups are
-exact-match and scoped to the current organization; zero or multiple matches
-fail with the candidate ids listed.
+the entity's natural key: `code` (`thing`, `location`, `location-type`,
+`thing-type`, `organization`), `hostname` (`nebula-host`), `nats_username`
+(`nats-user`), `email` (`invite`), and `name` for everything else. `membership`
+is id-only. Key lookups are exact-match and scoped to the current organization;
+zero or multiple matches fail with the candidate ids listed.
+
+`organization` is the one entity with two human keys, and accepts **either**:
+its `code` is tried first, then its `name`. Both are unique columns on the
+platform, so the keys are tried one at a time rather than OR-ed into a single
+query — an organization whose code is `acme` wins over a different one merely
+*named* `acme`, deterministically, instead of the lookup being refused as
+ambiguous.
 
 `get` (alias `show`) and `ls` take `--fields` for server-side projection; on
 `ls` table output the requested fields become the columns. `ls` also takes
@@ -336,6 +343,29 @@ way.
 **Create and update still take ids.** Relation flags (`--type`, `--location`,
 `--network-id`, …) are unchanged and want a 15-char PocketBase id. Reading is
 where the ids were unreadable; writing is where they are unambiguous.
+
+### Organizations are addressed by code
+
+```
+$ stone org ls
+CURRENT  CODE           NAME            ID
+*        acme           Acme Industries  r03ixjyfs4fbkp2
+         warehouse-ops  Warehouse Ops    id5m2ymebgp4bkd
+
+$ stone org switch warehouse-ops
+switched to warehouse-ops (id5m2ymebgp4bkd)
+```
+
+The code is the platform's root identifier: globally unique, baked into signed
+account JWTs and into the NATS subject namespace, and the value printed on a
+sticker. It is what an `ORGANIZATION` relation column shows, and what
+`org switch` and `organization get` take — the same rule as everywhere else
+here, that the value you see is the value you may type.
+
+The `name` still resolves, for `org switch "Warehouse Ops"` and
+`organization get "Warehouse Ops"`. The id is still shown by `org ls` because
+`membership create --organization` wants one.
+
 
 ### Auth-collection conveniences
 
@@ -390,7 +420,7 @@ records, not devices.
 
 ```sh
 ./stone invite accept <token>
-./stone org switch "Warehouse Ops"     # sets the active org and syncs its NATS context
+./stone org switch warehouse-ops       # by code, name, or id; syncs the NATS context too
 ```
 
 `accept` wraps the platform's `POST /api/org/invites/accept`. The token is the

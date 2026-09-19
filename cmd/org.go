@@ -6,6 +6,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"text/tabwriter"
 
 	"github.com/spf13/cobra"
 	"github.com/stone-age-io/stone-cli/internal/ctx"
@@ -29,7 +30,7 @@ var orgLsCmd = &cobra.Command{
 			return err
 		}
 		client := newPBClient(c)
-		items, err := client.ListAll("organizations", pb.ListOptions{Sort: "name"})
+		items, err := client.ListAll("organizations", pb.ListOptions{Sort: "code"})
 		if err != nil {
 			return err
 		}
@@ -40,22 +41,29 @@ var orgLsCmd = &cobra.Command{
 		}
 		out := resolveOutput()
 		if out == "json" || out == "yaml" {
-			return pb.PrintList(os.Stdout, items, []string{"id", "name", "current"}, out)
+			return pb.PrintList(os.Stdout, items, []string{"id", "code", "name", "current"}, out)
 		}
 		if len(items) == 0 {
 			fmt.Println("no organizations visible to this user")
 			return nil
 		}
+		// A header and aligned columns, like every other `ls` in this CLI. The
+		// code leads because it is what `org switch` takes and what a relation
+		// column elsewhere shows; the id stays because `membership create
+		// --organization` still wants one.
+		tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+		fmt.Fprintln(tw, "CURRENT\tCODE\tNAME\tID")
 		for _, it := range items {
 			id, _ := it["id"].(string)
+			code, _ := it["code"].(string)
 			name, _ := it["name"].(string)
-			marker := "  "
+			marker := ""
 			if id == c.CurrentOrganization {
-				marker = "* "
+				marker = "*"
 			}
-			fmt.Printf("%s%s  %s\n", marker, id, name)
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", marker, code, name, id)
 		}
-		return nil
+		return tw.Flush()
 	},
 }
 
@@ -68,17 +76,20 @@ var orgCurrentCmd = &cobra.Command{
 			return err
 		}
 		if c.CurrentOrganization == "" {
-			return errors.New("no current organization set. run: stone org switch <name|id>")
+			return errors.New("no current organization set. run: stone org switch <code|name|id>")
 		}
-		// Best-effort enrich with name from server.
+		// Best-effort enrich from the server. The id stays FIRST so that
+		// anything already reading this line by position keeps getting what it
+		// got before; the code is appended rather than promoted.
 		client := newPBClient(c)
-		rec, err := client.Get("organizations", c.CurrentOrganization)
+		rec, err := client.Get("organizations", c.CurrentOrganization, pb.GetOptions{Fields: "id,name,code"})
 		if err != nil {
 			fmt.Println(c.CurrentOrganization)
 			return nil
 		}
 		name, _ := rec["name"].(string)
-		fmt.Printf("%s  %s\n", c.CurrentOrganization, name)
+		code, _ := rec["code"].(string)
+		fmt.Printf("%s  %s  %s\n", c.CurrentOrganization, or(code, "(no code)"), name)
 		return nil
 	},
 }
@@ -87,8 +98,9 @@ var orgCurrentCmd = &cobra.Command{
 var pocketbaseIDRE = regexp.MustCompile(`^[A-Za-z0-9]{15}$`)
 
 var orgSwitchCmd = &cobra.Command{
-	Use:   "switch <name|id>",
+	Use:   "switch <code|name|id>",
 	Short: "Switch the current organization (updates server and local cache)",
+	Long:  "Switch the active organization by code, name, or 15-char id.\nThe code is tried first; both it and the name are unique.\n\nThis updates the server-side users.current_organization AND the local context,\nthen syncs a per-org nats-cli context when the stone context has nats_url set.",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		c, err := ctx.Active(flagContext)
@@ -109,32 +121,25 @@ var orgSwitchCmd = &cobra.Command{
 
 		client := newPBClient(c)
 		target := args[0]
-		orgID := target
-		var orgName string
-		if !pocketbaseIDRE.MatchString(target) {
-			// Resolve name to id.
-			filter := fmt.Sprintf(`name="%s"`, escapePBString(target))
-			lr, err := client.List("organizations", pb.ListOptions{Filter: filter, PerPage: 2})
-			if err != nil {
-				return err
-			}
-			switch len(lr.Items) {
-			case 0:
-				return fmt.Errorf("no organization matches name %q", target)
-			case 1:
-				orgID, _ = lr.Items[0]["id"].(string)
-				orgName, _ = lr.Items[0]["name"].(string)
-			default:
-				return fmt.Errorf("multiple organizations match name %q; use id instead", target)
-			}
-		} else {
-			// Sanity-check the id and grab the name for the success line.
-			rec, err := client.Get("organizations", target)
-			if err != nil {
-				return fmt.Errorf("organization id %q not accessible: %w", target, err)
-			}
-			orgName, _ = rec["name"].(string)
+
+		// Resolution is the entity table's, not a second copy of it: `code`
+		// first, then `name`, with an id-shaped argument tried as an id before
+		// either. That is how every other positional lookup in this CLI behaves,
+		// and it is why `org switch` gained codes for free when the spec did.
+		orgSpec, ok := specByCollection("organizations")
+		if !ok {
+			return errors.New("no organization entity spec")
 		}
+		orgID, err := resolveRecordID(client, orgSpec, "", target)
+		if err != nil {
+			return err
+		}
+		rec, err := client.Get("organizations", orgID, pb.GetOptions{Fields: "id,name,code"})
+		if err != nil {
+			return fmt.Errorf("organization %q not accessible: %w", target, err)
+		}
+		orgName, _ := rec["name"].(string)
+		orgCode, _ := rec["code"].(string)
 
 		if _, err := client.Update(c.Auth.Collection, c.Auth.UserID, pb.Record{"current_organization": orgID}); err != nil {
 			return fmt.Errorf("update users.current_organization: %w", err)
@@ -143,7 +148,7 @@ var orgSwitchCmd = &cobra.Command{
 		if err := ctx.Save(c); err != nil {
 			return fmt.Errorf("saved on server but failed to write local sidecar: %w (org id: %s)", err, orgID)
 		}
-		fmt.Printf("switched to %s (%s)\n", or(orgName, "(unnamed)"), orgID)
+		fmt.Printf("switched to %s (%s)\n", or(orgCode, or(orgName, "(unnamed)")), orgID)
 
 		// --- NATS context sync ----------------------------------------
 		skipNats, _ := cmd.Flags().GetBool("no-nats")

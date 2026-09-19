@@ -203,7 +203,7 @@ or if the local files have drifted.`,
 			return errors.New("not logged in. run: stone auth login")
 		}
 		if c.CurrentOrganization == "" {
-			return errors.New("no current organization. run: stone org switch <name|id>")
+			return errors.New("no current organization. run: stone org switch <code|name|id>")
 		}
 		if natsURL, _ := cmd.Flags().GetString("nats-url"); natsURL != "" {
 			c.NATSURL = natsURL

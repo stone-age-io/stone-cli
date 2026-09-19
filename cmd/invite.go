@@ -68,7 +68,7 @@ working in. Use ` + "`stone org switch`" + ` for that.`,
 		// the route may have just set it. Rather than guess which way it went,
 		// point at the command that reconciles both -- and that also syncs the
 		// NATS context, which a fresh membership has no creds for until it runs.
-		fmt.Println("\nnext: stone org switch <name|id>   (sets the active org and syncs its NATS context)")
+		fmt.Println("\nnext: stone org switch <code|name|id>   (sets the active org and syncs its NATS context)")
 		return nil
 	},
 }

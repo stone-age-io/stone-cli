@@ -86,6 +86,25 @@ func TestEntitySpecsAreWellFormed(t *testing.T) {
 				t.Errorf("LookupKey %q is not a declared field, so natural-key lookup filters on a column that may not exist", spec.LookupKey)
 			}
 
+			// Alternates are filtered on exactly the same way, one query each,
+			// so the same rule applies -- plus two of their own: an alternate
+			// with no primary would never be reached (lookupKeys returns
+			// nothing when LookupKey is empty), and one that repeats a key
+			// spends a round trip re-asking a question already answered.
+			seenKey := map[string]bool{spec.LookupKey: true}
+			for _, alt := range spec.AltLookupKeys {
+				if spec.LookupKey == "" {
+					t.Errorf("AltLookupKeys names %q but LookupKey is empty, so no lookup key is ever tried", alt)
+				}
+				if spec.field(alt) == nil {
+					t.Errorf("AltLookupKeys names %q, which is not a declared field", alt)
+				}
+				if seenKey[alt] {
+					t.Errorf("AltLookupKeys repeats %q, which costs a duplicate query and can never match differently", alt)
+				}
+				seenKey[alt] = true
+			}
+
 			seenField := map[string]bool{}
 			seenFlag := map[string]bool{}
 			for _, f := range spec.Fields {
@@ -316,5 +335,58 @@ func TestEveryEntityIsReachableByAtLeastOneVerb(t *testing.T) {
 		if !spec.hasVerb("ls") && !spec.hasVerb("get") {
 			t.Errorf("%s supports neither ls nor get: %v", spec.Name, strings.Join(have, ","))
 		}
+	}
+}
+
+// The organization is the only entity with two human keys, and the ORDER they
+// are tried in is the whole reason resolveRecordID queries them one at a time
+// rather than OR-ing them into a single filter. Both columns are unique, so a
+// combined query could match two different records and refuse a lookup that is
+// perfectly well defined.
+func TestOrganizationResolvesByCodeFirstThenName(t *testing.T) {
+	spec, ok := specByCollection("organizations")
+	if !ok {
+		t.Fatal("organizations has no spec")
+	}
+
+	if got := spec.lookupKeys(); len(got) != 2 || got[0] != "code" || got[1] != "name" {
+		t.Fatalf("lookup keys = %v, want [code name]", got)
+	}
+
+	// The code is also what a relation column shows and what `org switch`
+	// takes. Those are the same value on purpose: what you see is what you type.
+	if got := relationLabel(map[string]any{
+		"collectionName": "organizations",
+		"code":           "acme",
+		"name":           "Acme Industries",
+	}); got != "acme" {
+		t.Errorf("relation label = %q, want the code", got)
+	}
+
+	// An organization with no code -- the schema permits it, the index is
+	// partial (`WHERE code != ''`) -- still labels as something readable.
+	if got := relationLabel(map[string]any{
+		"collectionName": "organizations",
+		"code":           "",
+		"name":           "Acme Industries",
+	}); got != "Acme Industries" {
+		t.Errorf("a codeless organization should fall back to its name, got %q", got)
+	}
+}
+
+// idArgUse writes the accepted keys into every command's help, so the help says
+// `get <id|code|name>` rather than promising only one of them.
+func TestIdArgUseListsEveryLookupKey(t *testing.T) {
+	org, _ := specByCollection("organizations")
+	if got := idArgUse(org, "get"); got != "get <id|code|name>" {
+		t.Errorf("got %q", got)
+	}
+	thing, _ := specByCollection("things")
+	if got := idArgUse(thing, "get"); got != "get <id|code>" {
+		t.Errorf("got %q", got)
+	}
+	membership, _ := specByCollection("memberships")
+	if got := idArgUse(membership, "get"); got != "get <id>" {
+		t.Errorf("got %q", got)
 	}
 }

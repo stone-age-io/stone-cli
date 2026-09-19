@@ -22,7 +22,7 @@ Per-user state lives under `$XDG_CONFIG_HOME/stone/`. Before doing real work, fo
 |---|---|---|
 | 1. Context | `stone context ls` | `stone context create <name> --url <server> [--nats-url nats://...]` |
 | 2. Auth | `stone auth whoami` — read the `session:` line, not just the exit status | `stone auth login` (interactive; user must supply email/password) |
-| 3. Organization | `stone org current` | `stone org ls` then `stone org switch <name>` |
+| 3. Organization | `stone org current` | `stone org ls` then `stone org switch <code>` |
 | 4. Workspace (optional, for pull/apply) | check `context.yaml`'s `workspace:` | `stone pull --set-workspace .` |
 
 Step 2 cannot be automated by an assistant — `auth login` prompts for credentials. Surface it to the user.
@@ -61,7 +61,7 @@ Verbs `ls / get / create / update / delete / edit` are derived from a single dec
 | `location-type` | `location_types` | yes | `code` | full |
 | `thing-type` | `thing_types` | yes | `code` | full |
 | `thing-type-operation` | `thing_type_operations` | yes | `name` | full |
-| `organization` | `organizations` | no | `name` | full |
+| `organization` | `organizations` | no | `code`, or `name` | full |
 | `membership` | `memberships` | no | — (id only) | full |
 | `invite` | `invites` | yes | `email` | full |
 | `nats-user` | `nats_users` | yes | `nats_username` | full |
@@ -131,7 +131,7 @@ device that can connect.
 
 ```sh
 stone invite accept <token>          # wraps POST /api/org/invites/accept
-stone org switch <name|id>           # then set the active org, which also syncs NATS creds
+stone org switch <code|name|id>           # then set the active org, which also syncs NATS creds
 ```
 
 The token is the `?token=` value from the invitation link, not the invite

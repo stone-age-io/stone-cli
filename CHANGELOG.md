@@ -12,6 +12,46 @@ that period, and this file starts where the versioned releases do.
 
 ### Changed
 
+- **Organizations are addressed by code.** `org ls` gained a `CODE` column and a
+  header, `org switch` takes a code, and an `ORGANIZATION` relation column shows
+  one:
+
+  ```
+  $ stone org ls
+  CURRENT  CODE           NAME             ID
+  *        acme           Acme Industries  r03ixjyfs4fbkp2
+           warehouse-ops  Warehouse Ops    id5m2ymebgp4bkd
+
+  $ stone org switch warehouse-ops
+  switched to warehouse-ops (id5m2ymebgp4bkd)
+  ```
+
+  The code is the platform's root identifier — globally unique, baked into
+  signed account JWTs and into the NATS subject namespace (ADR 0002), printed on
+  a sticker. Making it the organization's `LookupKey` is what makes the relation
+  column show it, so this follows the same rule as the change above: the value
+  you see is the value you may type.
+
+  **`name` still resolves**, so `org switch "Warehouse Ops"` and
+  `organization get "Warehouse Ops"` are unaffected. That needed a new
+  `AltLookupKeys` on the spec, and keys are tried one query at a time rather than
+  OR-ed into one filter — `organizations.code` and `organizations.name` are both
+  unique columns, so a combined query could match two different records and
+  force the CLI to refuse a lookup that is perfectly well defined. The code is
+  tried first, so an organization *coded* `acme` deterministically beats a
+  different one merely *named* `acme`.
+
+  `org switch` now resolves through the same `resolveRecordID` every other
+  positional lookup uses, instead of its own copy of the logic — which is how it
+  gained id-fallback and the multi-match error message for free.
+
+  Two smaller changes ride along. `org ls` prints a header and aligned columns
+  like every other `ls` in the CLI, where it used to print a bespoke
+  `* <id>  <name>`; `-o json` is unchanged. And `pull` names organization files
+  by code now (`acme.yaml`, not `Acme-Industries.yaml`) — an existing workspace
+  will gain the new file beside the old one on the next pull, and the stale one
+  is safe to delete.
+
 - **Relations read as codes instead of PocketBase ids.** `stone thing ls` showed
   `TYPE` and `LOCATION` as 15-char ids; it now shows `temp-sensor` and `hq`.
   Seven specs had at least one column of raw ids — things, locations,

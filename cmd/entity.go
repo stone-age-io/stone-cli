@@ -55,15 +55,16 @@ type Field struct {
 
 // EntitySpec defines a CRUD-able entity.
 type EntitySpec struct {
-	Name        string   // e.g. "thing"
-	Plural      string   // e.g. "things"
-	Collection  string   // PocketBase collection name
-	OrgScoped   bool     // auto-inject organization on create
-	KeyColumns  []string // table columns besides id
-	Verbs       []string // empty = all of {ls, get, create, update, delete, edit}; otherwise the subset
-	LookupKey   string   // record field accepted in place of an id on get/update/delete/edit ("" = id only)
-	DefaultSort string   // PocketBase sort applied by `ls` when --sort is not given ("" = server order)
-	Fields      []Field
+	Name          string   // e.g. "thing"
+	Plural        string   // e.g. "things"
+	Collection    string   // PocketBase collection name
+	OrgScoped     bool     // auto-inject organization on create
+	KeyColumns    []string // table columns besides id
+	Verbs         []string // empty = all of {ls, get, create, update, delete, edit}; otherwise the subset
+	LookupKey     string   // record field accepted in place of an id on get/update/delete/edit ("" = id only)
+	AltLookupKeys []string // further fields accepted in place of an id, tried after LookupKey
+	DefaultSort   string   // PocketBase sort applied by `ls` when --sort is not given ("" = server order)
+	Fields        []Field
 }
 
 func (s EntitySpec) hasVerb(v string) bool {
@@ -234,8 +235,29 @@ var entitySpecs = []EntitySpec{
 		Plural:     "organizations",
 		Collection: "organizations",
 		OrgScoped:  false,
-		KeyColumns: []string{"name", "code", "active", "owner"},
-		LookupKey:  "name",
+		KeyColumns: []string{"code", "name", "active", "owner"},
+		// `code` is the primary key a human types, and `name` still resolves.
+		//
+		// The code is the platform's own root identifier -- globally unique,
+		// baked into signed account JWTs and into the NATS subject namespace
+		// (ADR 0002), and the thing printed on a sticker. It is also what every
+		// other coded entity here keys on, so `organization get acme` now reads
+		// like `thing get sensor-42`. And it is what a relation column shows,
+		// which is the rule this table follows everywhere: the value you SEE is
+		// the value you may TYPE.
+		//
+		// `name` stays accepted because it is equally unique (idx_unique_org_name)
+		// and because it is what people say out loud -- dropping it would break
+		// `org switch "Warehouse Ops"`, which the docs have always shown. Order
+		// matters: an organization whose code is "acme" wins over a different one
+		// merely named "acme". Both are unique columns, so a single OR-ed query
+		// could match two records and refuse a lookup that is perfectly well
+		// defined.
+		//
+		// The code is optional at the schema level (`WHERE code != ''`), so a row
+		// without one still resolves by name and still pulls to a filename.
+		LookupKey:     "code",
+		AltLookupKeys: []string{"name"},
 		Fields: []Field{
 			{Name: "name", Type: FString, Required: true, Help: "organization name (must be unique)"},
 			// The one GLOBALLY unique identifier in the ecosystem, and the root
@@ -717,51 +739,75 @@ func buildGetCmd(spec EntitySpec) *cobra.Command {
 
 // idArgUse renders the Use string for verbs taking a positional record arg.
 func idArgUse(spec EntitySpec, verb string) string {
-	if spec.LookupKey != "" {
-		return fmt.Sprintf("%s <id|%s>", verb, spec.LookupKey)
+	keys := spec.lookupKeys()
+	if len(keys) == 0 {
+		return verb + " <id>"
 	}
-	return verb + " <id>"
+	return fmt.Sprintf("%s <id|%s>", verb, strings.Join(keys, "|"))
+}
+
+// lookupKeys returns the record fields accepted in place of an id, in the order
+// they are tried: the primary LookupKey first, then any alternates.
+func (s EntitySpec) lookupKeys() []string {
+	if s.LookupKey == "" {
+		return nil
+	}
+	return append([]string{s.LookupKey}, s.AltLookupKeys...)
 }
 
 // resolveRecordID resolves a positional <id|key> argument to a record id.
 // Id-shaped args are tried as ids first; anything else — or an id-shaped arg
-// that doesn't resolve — is matched exactly against the spec's LookupKey,
-// scoped to the current organization for org-scoped collections.
+// that doesn't resolve — is matched exactly against the spec's lookup keys in
+// order, scoped to the current organization for org-scoped collections.
+//
+// Trying the keys IN ORDER rather than OR-ing them into one filter is what makes
+// `organization` unambiguous. Both its `code` and its `name` are unique columns,
+// so one query matching both could return two different records and the CLI
+// would have to refuse a lookup that is perfectly well defined. First key to
+// match exactly one record wins, and the primary key is first.
 func resolveRecordID(client *pb.Client, spec EntitySpec, orgID, arg string) (string, error) {
+	keys := spec.lookupKeys()
+
 	idShaped := pocketbaseIDRE.MatchString(arg)
 	if idShaped {
 		if _, err := client.Get(spec.Collection, arg, pb.GetOptions{Fields: "id"}); err == nil {
 			return arg, nil
-		} else if spec.LookupKey == "" {
+		} else if len(keys) == 0 {
 			return "", fmt.Errorf("%s id %q not accessible: %w", spec.Name, arg, err)
 		}
 	}
-	if spec.LookupKey == "" {
+	if len(keys) == 0 {
 		return "", fmt.Errorf("%s takes a 15-char PocketBase id, got %q", spec.Name, arg)
 	}
-	filter := composeOrgFilter(spec, orgID, fmt.Sprintf(`%s="%s"`, spec.LookupKey, escapePBString(arg)))
-	items, err := client.ListAll(spec.Collection, pb.ListOptions{Filter: filter, Fields: "id"})
-	if err != nil {
-		return "", err
-	}
-	switch len(items) {
-	case 0:
-		if idShaped {
-			return "", fmt.Errorf("no %s with id or %s %q", spec.Name, spec.LookupKey, arg)
+
+	for _, key := range keys {
+		filter := composeOrgFilter(spec, orgID, fmt.Sprintf(`%s="%s"`, key, escapePBString(arg)))
+		items, err := client.ListAll(spec.Collection, pb.ListOptions{Filter: filter, Fields: "id"})
+		if err != nil {
+			return "", err
 		}
-		return "", fmt.Errorf("no %s with %s %q", spec.Name, spec.LookupKey, arg)
-	case 1:
-		id, _ := items[0]["id"].(string)
-		return id, nil
-	default:
-		ids := make([]string, 0, len(items))
-		for _, it := range items {
-			if id, ok := it["id"].(string); ok {
-				ids = append(ids, id)
+		switch len(items) {
+		case 0:
+			continue // try the next key
+		case 1:
+			id, _ := items[0]["id"].(string)
+			return id, nil
+		default:
+			ids := make([]string, 0, len(items))
+			for _, it := range items {
+				if id, ok := it["id"].(string); ok {
+					ids = append(ids, id)
+				}
 			}
+			return "", fmt.Errorf("multiple %s match %s %q (%s); use the id", spec.Plural, key, arg, strings.Join(ids, ", "))
 		}
-		return "", fmt.Errorf("multiple %s match %s %q (%s); use the id", spec.Plural, spec.LookupKey, arg, strings.Join(ids, ", "))
 	}
+
+	what := strings.Join(keys, " or ")
+	if idShaped {
+		return "", fmt.Errorf("no %s with id or %s %q", spec.Name, what, arg)
+	}
+	return "", fmt.Errorf("no %s with %s %q", spec.Name, what, arg)
 }
 
 // splitFields turns a --fields value into table column names.
@@ -812,7 +858,7 @@ func buildCreateCmd(spec EntitySpec) *cobra.Command {
 			}
 			if spec.OrgScoped {
 				if c.CurrentOrganization == "" {
-					return errors.New("no current organization. run: stone org switch <name|id>")
+					return errors.New("no current organization. run: stone org switch <code|name|id>")
 				}
 				if _, ok := data["organization"]; !ok {
 					data["organization"] = c.CurrentOrganization
