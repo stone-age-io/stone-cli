@@ -55,14 +55,15 @@ type Field struct {
 
 // EntitySpec defines a CRUD-able entity.
 type EntitySpec struct {
-	Name       string   // e.g. "thing"
-	Plural     string   // e.g. "things"
-	Collection string   // PocketBase collection name
-	OrgScoped  bool     // auto-inject organization on create
-	KeyColumns []string // table columns besides id
-	Verbs      []string // empty = all of {ls, get, create, update, delete, edit}; otherwise the subset
-	LookupKey  string   // record field accepted in place of an id on get/update/delete/edit ("" = id only)
-	Fields     []Field
+	Name        string   // e.g. "thing"
+	Plural      string   // e.g. "things"
+	Collection  string   // PocketBase collection name
+	OrgScoped   bool     // auto-inject organization on create
+	KeyColumns  []string // table columns besides id
+	Verbs       []string // empty = all of {ls, get, create, update, delete, edit}; otherwise the subset
+	LookupKey   string   // record field accepted in place of an id on get/update/delete/edit ("" = id only)
+	DefaultSort string   // PocketBase sort applied by `ls` when --sort is not given ("" = server order)
+	Fields      []Field
 }
 
 func (s EntitySpec) hasVerb(v string) bool {
@@ -75,6 +76,22 @@ func (s EntitySpec) hasVerb(v string) bool {
 		}
 	}
 	return false
+}
+
+// syncable reports whether this entity belongs in a GitOps workspace.
+//
+// pull and apply both walk entitySpecs, so a spec the CLI cannot write is a
+// directory of files apply would fail on: every record already has an id, so
+// apply PATCHes it, and a collection with no update rule answers 404. The
+// `activity` feed is the case that made this explicit -- it is append-only by
+// construction, and a declarative workspace has nothing to say about a log of
+// what already happened.
+//
+// Keyed on the verbs rather than a flag of its own, because the two say the same
+// thing: if neither create nor update is offered, the CLI has no way to
+// reconcile the record and never did.
+func (s EntitySpec) syncable() bool {
+	return s.hasVerb("create") || s.hasVerb("update")
 }
 
 // aliases returns alternate command names so users can type the singular,
@@ -497,6 +514,39 @@ var entitySpecs = []EntitySpec{
 			// routeOnlyFields in schema_drift_test.go is what holds that line.
 		},
 	},
+
+	// ---- Activity feed ---------------------------------------------------
+
+	// The platform's tenant-facing record of who changed what (platform v0.8.0).
+	// Read-only here because it is read-only everywhere: all three write rules
+	// are nil, so the collection cannot be forged or rewritten through the API
+	// at all -- not by a tenant, not by an operator. Offering create or delete
+	// would build commands whose only possible outcome is a 404.
+	//
+	// It is deliberately NOT audit_logs, which stays operator-only, carries full
+	// before/after snapshots and has no organization column. This one records
+	// the actor, the action, the record and a label for each, and no values.
+	//
+	// The feed covers the five tenant collections whose reads are org-scoped with
+	// no role branch -- things, locations and the three type collections -- so
+	// what shows up here is a subset of what `ls` on those entities shows. The
+	// platform will not widen it without an authorization review, so neither
+	// should this spec by, say, adding a resource column the platform never
+	// writes.
+	//
+	// DefaultSort exists for this entity: a feed listed in insertion order is a
+	// feed nobody can read. `--sort` still overrides.
+	{
+		Name:        "activity",
+		Plural:      "activities",
+		Collection:  "activity",
+		OrgScoped:   true,
+		Verbs:       []string{"ls", "get"},
+		KeyColumns:  []string{"created", "actor_label", "action", "resource", "resource_label"},
+		DefaultSort: "-created",
+		// No Fields: nothing here is writable, and a flag for a field no rule
+		// admits is exactly the silent no-op schema_drift_test.go exists to stop.
+	},
 }
 
 // resolveOutput returns the effective output format for typed CRUD commands.
@@ -513,10 +563,16 @@ func resolveOutput() string {
 
 // registerCRUD wires ls/get/create/update/delete/edit for a single entity.
 func registerCRUD(spec EntitySpec) {
+	// "Manage" would be a lie on an entity with no write verb, and the entity
+	// list in `stone --help` is where someone decides what is possible.
+	short := fmt.Sprintf("Manage %s records", spec.Plural)
+	if !spec.hasVerb("create") && !spec.hasVerb("update") && !spec.hasVerb("delete") {
+		short = fmt.Sprintf("Read %s records", spec.Plural)
+	}
 	root := &cobra.Command{
 		Use:     spec.Name,
 		Aliases: spec.aliases(),
-		Short:   fmt.Sprintf("Manage %s records", spec.Plural),
+		Short:   short,
 	}
 	if spec.hasVerb("ls") {
 		root.AddCommand(buildLsCmd(spec))
@@ -555,13 +611,33 @@ func buildLsCmd(spec EntitySpec) *cobra.Command {
 			}
 			client := newPBClient(c)
 			sort, _ := cmd.Flags().GetString("sort")
+			if sort == "" {
+				sort = spec.DefaultSort
+			}
 			fields, _ := cmd.Flags().GetString("fields")
 			opts := pb.ListOptions{Sort: sort, Fields: fields}
 			extraFilter, _ := cmd.Flags().GetString("filter")
 			opts.Filter = composeOrgFilter(spec, c.CurrentOrganization, extraFilter)
-			items, err := client.ListAll(spec.Collection, opts)
-			if err != nil {
-				return err
+
+			// --limit is a single page rather than a truncated ListAll: the
+			// point is to stop asking the server for 40,000 things when you
+			// wanted the newest ten, so it has to reach the query, not the
+			// printer. Pair it with --sort (activity sorts newest-first on its
+			// own) or "the first n" means whatever order the server used.
+			var items []pb.Record
+			if limit, _ := cmd.Flags().GetInt("limit"); limit > 0 {
+				lr, lerr := client.List(spec.Collection, pb.ListOptions{
+					Filter: opts.Filter, Sort: opts.Sort, Fields: opts.Fields, PerPage: limit, Page: 1,
+				})
+				if lerr != nil {
+					return lerr
+				}
+				items = lr.Items
+			} else {
+				items, err = client.ListAll(spec.Collection, opts)
+				if err != nil {
+					return err
+				}
 			}
 			cols := append([]string{"id"}, spec.KeyColumns...)
 			if fields != "" {
@@ -573,6 +649,7 @@ func buildLsCmd(spec EntitySpec) *cobra.Command {
 	cmd.Flags().String("filter", "", "extra PocketBase filter expression to AND with the org filter")
 	cmd.Flags().String("sort", "", `PocketBase sort expression, e.g. "-updated" or "name"`)
 	cmd.Flags().String("fields", "", "comma-separated fields to return (server-side projection); table columns follow it")
+	cmd.Flags().Int("limit", 0, "return at most n records (one page; 0 = every record)")
 	return cmd
 }
 

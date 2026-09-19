@@ -21,11 +21,20 @@ Per-user state lives under `$XDG_CONFIG_HOME/stone/`. Before doing real work, fo
 | Step | Check | Fix |
 |---|---|---|
 | 1. Context | `stone context ls` | `stone context create <name> --url <server> [--nats-url nats://...]` |
-| 2. Auth | `stone auth whoami` | `stone auth login` (interactive; user must supply email/password) |
+| 2. Auth | `stone auth whoami` — read the `session:` line, not just the exit status | `stone auth login` (interactive; user must supply email/password) |
 | 3. Organization | `stone org current` | `stone org ls` then `stone org switch <name>` |
 | 4. Workspace (optional, for pull/apply) | check `context.yaml`'s `workspace:` | `stone pull --set-workspace .` |
 
 Step 2 cannot be automated by an assistant — `auth login` prompts for credentials. Surface it to the user.
+
+**Sessions expire and the server does not say so.** `stone` keeps its token on
+disk and nothing refreshes it. PocketBase serves a token it will not accept as a
+*guest* rather than refusing it, so every list rule filters the result to nothing
+and the answer is `200` with an empty array — an expired session and an empty
+organization produce identical output. The CLI now refuses an expired token
+before sending it (`the session for this context expired <date> — run: stone
+auth login`), and `stone auth whoami` prints a `session:` line. On an older
+build, check `whoami` before believing an empty `ls`.
 
 Step 3 is required for any collection the CLI auto-filters by org (the `OrgScoped` flag in `cmd/entity.go`). That covers everything except `organization` and `membership`. `membership` records *do* carry an `organization` relation, but the CLI deliberately doesn't filter them by current org — users typically want to see their memberships across every org they belong to. `organization` access is gated server-side by `is_operator`.
 
@@ -63,6 +72,7 @@ Verbs `ls / get / create / update / delete / edit` are derived from a single dec
 | `nebula-host` | `nebula_hosts` | yes | `hostname` | full |
 | `nats-account` | `nats_accounts` | yes | `name` | `ls / get / update / edit` |
 | `nebula-ca` | `nebula_ca` | yes | `name` | `ls / get / update / edit` |
+| `activity` | `activity` | yes | — (id only) | `ls / get` |
 
 `get`, `update`, `delete`, and `edit` take a positional `<id|lookup-key>`: either a 15-char PocketBase id or the entity's lookup key from the table above. Key lookups are exact-match and scoped to the current organization; zero or multiple matches fail, with candidate ids listed on ambiguity.
 
@@ -117,6 +127,37 @@ Use plain `thing create` when the goal is an inventory record (and for anything
 that will round-trip through `pull`/`apply`), `provision` when the goal is a
 device that can connect.
 
+### Joining an organization by invitation
+
+```sh
+stone invite accept <token>          # wraps POST /api/org/invites/accept
+stone org switch <name|id>           # then set the active org, which also syncs NATS creds
+```
+
+The token is the `?token=` value from the invitation link, not the invite
+record's id. The invitation is matched to the caller by email address, so this
+only redeems one issued to them. `current_organization` is set only when it was
+blank, which is why `org switch` is a separate step — and it is what writes the
+nats-cli context the new membership has no creds for yet.
+
+Responses worth distinguishing: `200` with `alreadyMember: true` is success (a
+double-clicked link; the invitation is deleted either way), `403` means the
+invitation was issued to a different address, `410` means it expired.
+
+### Reading the activity feed
+
+```sh
+stone activity ls --limit 20                        # newest first, no --sort needed
+stone activity ls --filter 'resource_id="<id>"'     # everything done to one record
+stone activity ls --filter 'action="deleted"' -o json
+```
+
+Org-scoped and readable by every role. It covers the five collections whose
+reads are org-scoped with no role branch — things, locations and the three type
+collections — and records no field values, only actor, action, record and
+labels. It is not `audit_logs`, which is operator-only and carries full
+snapshots.
+
 ## Declarative workflow
 
 ```sh
@@ -132,6 +173,8 @@ Properties:
 - **No deletes.** Records present on the server but absent locally are left alone. For deletion, use `stone <type> delete <id|key>` or the web UI.
 - **Org-scoped auto-fill.** On create, the current organization is injected into org-scoped records that don't already have one.
 - **Server-managed fields ignored.** `collectionId`, `collectionName`, `created`, `updated` are stripped on pull and ignored on apply.
+- **Credentials are never written out.** `pull` drops `nats_users.creds_file` (the credential itself), `nebula_hosts.config_yaml` (the host private key, inline), `invites.token`, and the server-generated certificates, JWTs and action triggers beside them, printing what it left out per collection. Pull-side only: a hand-written `revoke: true` still applies. See `workspaceOmit` in `cmd/sync.go`.
+- **Read-only entities are excluded.** `activity` is append-only on the platform, so it is neither pulled nor applied.
 
 Put the workspace under git for diff, history, and review.
 

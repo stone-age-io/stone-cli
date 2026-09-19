@@ -88,6 +88,16 @@ func runPull(cmd *cobra.Command, args []string) error {
 		if len(wanted) > 0 && !wanted[spec.Collection] && !wanted[spec.Name] && !wanted[spec.Plural] {
 			continue
 		}
+		// A read-only entity has nothing to reconcile: every record it could
+		// write already has an id, so apply would PATCH it, and a collection
+		// with no update rule answers 404. Named explicitly, say so; swept up
+		// in a full pull, stay quiet.
+		if !spec.syncable() {
+			if len(wanted) > 0 {
+				fmt.Fprintf(os.Stderr, "skip %s (read-only; apply has nothing to send)\n", spec.Collection)
+			}
+			continue
+		}
 		if spec.OrgScoped && c.CurrentOrganization == "" {
 			fmt.Fprintf(os.Stderr, "skip %s (org-scoped; no current organization set)\n", spec.Collection)
 			continue
@@ -107,9 +117,13 @@ func runPull(cmd *cobra.Command, args []string) error {
 			return err
 		}
 		count := 0
+		omitted := false
 		used := map[string]bool{}
 		for _, r := range items {
 			pb.Strip(r)
+			if stripWorkspaceFields(spec.Collection, r) {
+				omitted = true
+			}
 			base := recordFilename(spec, r)
 			if used[base] {
 				if id, _ := r["id"].(string); id != "" {
@@ -125,6 +139,10 @@ func runPull(cmd *cobra.Command, args []string) error {
 			count++
 		}
 		fmt.Printf("%-25s %4d → %s\n", spec.Collection, count, dir)
+		if omitted {
+			fmt.Printf("%-25s      (omitted %s — credentials and server-generated state are not written to the workspace)\n",
+				"", strings.Join(workspaceOmit[spec.Collection], ", "))
+		}
 		totals += count
 	}
 
@@ -138,6 +156,57 @@ func runPull(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Printf("pulled %d records\n", totals)
 	return nil
+}
+
+// workspaceOmit names, per collection, fields that `pull` must not write into a
+// workspace file.
+//
+// PocketBase already withholds the fields marked hidden in the schema -- every
+// private_key and seed -- so those never reach this CLI at all. The ones below
+// are the material the API DOES return to an owner or admin and that has no
+// business in a directory the docs tell you to commit to git:
+//
+//   - nats_users.creds_file IS the credential. It is the exact payload
+//     natsx.SyncContextForOrg writes to disk under 0600 so nats-cli can connect
+//     with it -- a user JWT and an nkey seed. Pulling an organization wrote one
+//     per NATS identity into world-readable YAML.
+//   - nebula_hosts.config_yaml carries the host's Nebula private key INLINE.
+//     pb-nebula says so itself (internal/types/types.go): the standalone
+//     private_key column can be encrypted at rest and is hidden from the API,
+//     and the rendered config that contains the same key is neither.
+//   - invites.token is a bearer credential to join the organization. Anyone who
+//     can read the file can redeem it as the invited address.
+//
+// The rest are server-generated state and action triggers. Neither belongs in a
+// declarative file: apply sends back every key in it, so a pulled certificate or
+// JWT is a stale value racing whatever the server has rotated to since, and a
+// pulled trigger re-asserts an action that already happened.
+//
+// This is a pull-side filter only. A hand-written file that sets one of these
+// still applies -- `revoke: true` is a legitimate thing to write by hand -- so
+// nothing here removes a capability. It only stops the CLI from putting secrets
+// on disk unasked.
+var workspaceOmit = map[string][]string{
+	"nats_users":    {"creds_file", "jwt", "public_key", "active", "regenerate", "revoke"},
+	"nats_accounts": {"jwt", "public_key", "signing_public_key", "signing_keys", "active", "revocations", "rotate_keys", "add_signing_key", "remove_signing_key"},
+	"nebula_hosts":  {"config_yaml", "certificate", "ca_certificate", "expires_at", "renew"},
+	"nebula_ca":     {"certificate", "expires_at", "rotate", "next_certificate", "previous_certificate", "rotated_at"},
+	"invites":       {"token", "resend_invite"},
+}
+
+// stripWorkspaceFields removes the fields above in place, and reports whether it
+// removed anything -- pull says so per collection, because a user who expected a
+// full record dump deserves to know what is not in the file rather than discover
+// it when a restore comes up short.
+func stripWorkspaceFields(collection string, r pb.Record) bool {
+	var removed bool
+	for _, f := range workspaceOmit[collection] {
+		if _, ok := r[f]; ok {
+			delete(r, f)
+			removed = true
+		}
+	}
+	return removed
 }
 
 func recordFilename(spec EntitySpec, r pb.Record) string {
@@ -204,9 +273,14 @@ func runApply(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	// Only the collections pull writes. A directory named after a read-only
+	// entity is left where it is rather than sent: apply would PATCH records
+	// whose collection has no update rule and count every one of them a failure.
 	collections := map[string]bool{}
 	for _, s := range entitySpecs {
-		collections[s.Collection] = true
+		if s.syncable() {
+			collections[s.Collection] = true
+		}
 	}
 
 	roots := args

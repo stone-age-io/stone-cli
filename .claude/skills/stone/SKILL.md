@@ -27,7 +27,8 @@ State lives under `$XDG_CONFIG_HOME/stone/` (e.g. `~/.config/stone/`). It is **p
    ```sh
    stone auth whoami
    ```
-   - On failure: `stone auth login` is interactive (prompts for email + password). You cannot supply these. Surface the requirement and let the user run it themselves, or have them pass `--email`/`--password` flags if they prefer.
+   - Read the `session:` line, not just the exit status. `whoami` reads local state and succeeds whether or not the token still works; `session: EXPIRED …` means every subsequent command fails until the user logs in again.
+   - On failure or expiry: `stone auth login` is interactive (prompts for email + password). You cannot supply these. Surface the requirement and let the user run it themselves, or have them pass `--email`/`--password` flags if they prefer.
 
 3. **Current organization set?**
    ```sh
@@ -69,6 +70,7 @@ Verbs `ls / get / create / update / delete / edit` are synthesized from a single
 | `nats-account`, `nebula-ca` | yes | `ls / get / update / edit` only (and every field is operator-only in practice — see Nebula overlay / `stone nats account-keys`) |
 | `membership` | no (org relation present, but not auto-filtered) | full |
 | `organization` | no (gated server-side by `is_operator`) | full |
+| `activity` | yes | `ls / get` only — append-only on the platform; not pulled or applied |
 
 ### Positional record args: id or natural key
 
@@ -145,6 +147,24 @@ stone thing provision --code gw-01 --name "Gateway 01"   --type <thing_type_id> 
 - Email and password are server-generated. **The password prints once** — capture it in the same step or it is gone.
 - Attaching either identity requires owner/admin.
 
+### Accepting an invitation
+
+```sh
+stone invite accept <token>     # wraps POST /api/org/invites/accept
+stone org switch <name|id>      # separate step; also syncs the new membership's NATS creds
+```
+
+The token is the `?token=` value from the invitation link, **not** the invite record's id. Matched to the caller by email address, so it only redeems an invitation issued to them. `current_organization` is set only when it was blank — that is why `org switch` follows. `200` with `alreadyMember: true` is success, `403` means a different address, `410` means expired.
+
+### Reading the activity feed
+
+```sh
+stone activity ls --limit 20                       # newest first; no --sort needed
+stone activity ls --filter 'resource_id="<id>"'    # everything done to one record
+```
+
+Org-scoped, every role can read it, and it records no field values — actor, action, record and labels only. Covers things, locations and the three type collections. It is not `audit_logs`, which is operator-only.
+
 ## Pull / apply (GitOps workflow)
 
 Use when the user wants to manage many records declaratively, version them in git, or apply changes from a YAML directory.
@@ -161,6 +181,8 @@ Important semantics:
 - `apply` **does not delete** records that exist on the server but are absent locally. Use `stone <type> delete <id|key>` for that.
 - Org-scoped records get `organization` auto-injected on create if missing — relies on the current org being set.
 - Server-managed fields (`collectionId`, `collectionName`, `created`, `updated`) are stripped by `pull` and ignored by `apply`.
+- `pull` does **not** write credentials or server-generated material into the workspace: `nats_users.creds_file` (the credential itself), `nebula_hosts.config_yaml` (host private key, inline), `invites.token`, plus certificates, JWTs and action triggers. It prints what it omitted per collection. This is pull-side only — a hand-written `revoke: true` still applies.
+- Read-only entities (`activity`) are excluded from both.
 - Filenames are the entity's lookup key, falling back to `name`, then id, with a `-<id>` suffix on collisions. They are cosmetic — `apply` identifies records solely by the `id` field inside each file, so renaming files is safe.
 
 ## NATS / JetStream
@@ -209,7 +231,8 @@ stone nebula ca-rotate prepare|commit|finish   # roll the org's CA, one step at 
 
 ## Common failure modes and how to react
 
-- **`not authenticated. run: stone auth login`** — auth token is missing or expired. Surface to user; they run `stone auth login`.
+- **`not authenticated. run: stone auth login`** — no token on the context. Surface to user; they run `stone auth login`.
+- **`the session for this context expired <date>`** — the token aged out. Same fix, and worth stating plainly: before the CLI checked this, an expired session came back as **empty lists with exit status 0**, because PocketBase serves a token it will not accept as a guest rather than refusing it. If a `ls` ever looks suspiciously empty on an older build, check `stone auth whoami` before concluding the org is empty.
 - **`no active context`** — bootstrap step 1 was skipped.
 - **`collection is org-scoped but no current organization set`** — bootstrap step 3.
 - **`nats-sync: skipped — no NATS URL on this stone context`** — `nats_url` was never set. If the user actually needs NATS, run `stone context create` again or `stone org switch <org> --nats-url nats://...` to set it.

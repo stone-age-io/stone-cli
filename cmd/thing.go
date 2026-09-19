@@ -164,15 +164,20 @@ Examples:
 
 // extraCommands are subcommands attached to a generated entity tree that are not
 // record CRUD. registerCRUD consults this map, so `thing provision` lands under
-// `thing` without entity.go knowing what it is.
+// `thing`, and `invite accept` under `invite`, without entity.go knowing what
+// either one is.
 //
-// A package-level var rather than something an init() populates: Go initializes
-// every package-level variable before any init() runs, so this is ordered
-// whatever order the files are compiled in. Flags are added in init() below,
-// which is fine -- AddCommand only links the command, and nothing parses until
-// Execute().
+// A package-level var rather than something an init() populates, and the
+// difference is not stylistic: Go initializes every package-level variable
+// before any init() runs, but init() functions run in FILE-NAME order, and
+// entity.go's -- the one that calls registerCRUD -- sorts before invite.go's
+// and thing.go's. A command appended from one of those init()s would be
+// attached to nothing, silently, and the subcommand would simply not exist.
+// Flags are added in init() and that is fine: AddCommand only links the
+// command, and nothing parses until Execute().
 var extraCommands = map[string][]*cobra.Command{
-	"thing": {thingProvisionCmd},
+	"thing":  {thingProvisionCmd},
+	"invite": {inviteAcceptCmd},
 }
 
 func init() {

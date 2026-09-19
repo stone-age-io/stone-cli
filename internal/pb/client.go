@@ -378,6 +378,24 @@ func (c *Client) do(method, path string, body io.Reader, needAuth bool) (*http.R
 	if needAuth && c.Token == "" {
 		return nil, errors.New("not authenticated. run: stone auth login")
 	}
+	// An expired token is refused HERE rather than left to the server, because
+	// the server does not refuse it either. PocketBase treats a token it will
+	// not accept as no token at all: the request proceeds as a guest, every
+	// list rule filters it down to nothing, and the response is 200 with an
+	// empty items array. So an aged-out session looks exactly like an empty
+	// organization -- `stone thing ls` prints a header and no rows, `stone org
+	// ls` says "no organizations visible to this user", and nothing anywhere
+	// says the word "login". That is a wrong answer delivered confidently,
+	// which is worse than an error.
+	//
+	// Checked against the `exp` claim rather than a stored timestamp so it also
+	// covers contexts written before the CLI recorded one. A token whose expiry
+	// cannot be parsed is sent as-is (see DecodeJWTExpiry).
+	if needAuth && TokenExpired(c.Token) {
+		exp, _ := DecodeJWTExpiry(c.Token)
+		return nil, fmt.Errorf("the session for this context expired %s — run: stone auth login",
+			exp.Local().Format(time.RFC1123))
+	}
 
 	// When debug is on, buffer the request body so we can log it AND still
 	// hand a fresh reader to http.NewRequest.
@@ -451,11 +469,38 @@ func (e *PBError) status() int {
 	return e.Code
 }
 
+// authHint is appended to a 401. PocketBase phrases that status as "The request
+// requires valid record authorization token to be set", which is accurate and
+// tells nobody what to do about it. It is the belt to the expired-token check's
+// braces in `do`: that one catches the common case before a request goes out,
+// this one covers whatever the server does reject outright. A 403 deliberately
+// gets no hint -- that one means the token is fine and the role is not, and
+// logging in again would not change it.
+const authHint = "\n  the session token is missing or expired — run: stone auth login"
+
+// collectionHint is appended when PocketBase reports an unknown collection.
+// "Missing collection context." is its wording, and on its own it reads like a
+// client bug. It nearly always means the opposite: the CLI knows about a
+// collection this deployment does not have yet, because the server is older
+// than the release that added it. That is the normal shape of a CLI that ships
+// separately from the platform, and it deserves to say so rather than leave
+// someone reading PocketBase's source.
+const collectionHint = "\n  this server has no such collection — it is probably running a platform release older than this CLI"
+
 func (e *PBError) Error() string {
+	var msg string
 	if len(e.Data) > 0 {
-		return fmt.Sprintf("%s (%d): %s", e.Message, e.status(), formatPBData(e.Data))
+		msg = fmt.Sprintf("%s (%d): %s", e.Message, e.status(), formatPBData(e.Data))
+	} else {
+		msg = fmt.Sprintf("%s (%d)", e.Message, e.status())
 	}
-	return fmt.Sprintf("%s (%d)", e.Message, e.status())
+	switch {
+	case e.status() == http.StatusUnauthorized:
+		msg += authHint
+	case e.status() == http.StatusNotFound && strings.Contains(e.Message, "Missing collection"):
+		msg += collectionHint
+	}
+	return msg
 }
 
 func formatPBData(d map[string]any) string {
@@ -484,28 +529,69 @@ func checkOK(resp *http.Response) error {
 	return fmt.Errorf("http %d: %s", resp.StatusCode, string(b))
 }
 
-// DecodeJWTUserID extracts the user id from a PocketBase JWT without verifying.
-// PocketBase puts the id under the "id" claim.
-func DecodeJWTUserID(token string) (string, error) {
+// decodeJWTClaims parses a JWT payload without verifying the signature. That is
+// deliberate and safe for what this file does with it: the server verifies, and
+// the two things read out here -- the caller's own id and the expiry -- are used
+// to fill in local state and to fail early. Neither decides anything the server
+// would not decide again.
+func decodeJWTClaims(token string) (map[string]any, error) {
 	parts := strings.Split(token, ".")
 	if len(parts) != 3 {
-		return "", errors.New("invalid jwt format")
+		return nil, errors.New("invalid jwt format")
 	}
 	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
 	if err != nil {
 		// Try standard base64 in case padding is present.
 		payload, err = base64.StdEncoding.DecodeString(parts[1])
 		if err != nil {
-			return "", fmt.Errorf("decode jwt payload: %w", err)
+			return nil, fmt.Errorf("decode jwt payload: %w", err)
 		}
 	}
 	var claims map[string]any
 	if err := json.Unmarshal(payload, &claims); err != nil {
-		return "", fmt.Errorf("parse jwt claims: %w", err)
+		return nil, fmt.Errorf("parse jwt claims: %w", err)
+	}
+	return claims, nil
+}
+
+// DecodeJWTUserID extracts the user id from a PocketBase JWT without verifying.
+// PocketBase puts the id under the "id" claim.
+func DecodeJWTUserID(token string) (string, error) {
+	claims, err := decodeJWTClaims(token)
+	if err != nil {
+		return "", err
 	}
 	id, _ := claims["id"].(string)
 	if id == "" {
 		return "", errors.New("jwt has no id claim")
 	}
 	return id, nil
+}
+
+// DecodeJWTExpiry returns the token's `exp` claim as a time. A token without one
+// returns the zero time and no error: that is "unknown", not "expired", and the
+// caller must treat it as such -- refusing to send a token this CLI could not
+// parse would turn a format change into an outage.
+func DecodeJWTExpiry(token string) (time.Time, error) {
+	claims, err := decodeJWTClaims(token)
+	if err != nil {
+		return time.Time{}, err
+	}
+	// JSON numbers decode as float64. PocketBase writes exp as seconds since the
+	// epoch, and float64 holds those exactly for any date anyone will see.
+	exp, ok := claims["exp"].(float64)
+	if !ok {
+		return time.Time{}, nil
+	}
+	return time.Unix(int64(exp), 0), nil
+}
+
+// TokenExpired reports whether the token's expiry is in the past. A token whose
+// expiry cannot be read is never reported as expired -- see DecodeJWTExpiry.
+func TokenExpired(token string) bool {
+	exp, err := DecodeJWTExpiry(token)
+	if err != nil || exp.IsZero() {
+		return false
+	}
+	return time.Now().After(exp)
 }

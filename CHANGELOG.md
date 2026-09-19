@@ -10,7 +10,125 @@ that period, and this file starts where the versioned releases do.
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- **An expired session looked exactly like an empty organization.** PocketBase
+  does not refuse a token it will not accept — it serves the request as a guest.
+  Every list rule then filters the result down to nothing and the response is
+  `200` with an empty array. So a context whose token had aged out printed a
+  table header and no rows, `stone org ls` said *"no organizations visible to
+  this user"*, `stone pull` reported `pulled 0 records` and exited zero, and
+  nothing anywhere said the word "login". Found by running the new build against
+  a real deployment: the context had been dead for three weeks and every command
+  had been answering confidently.
+
+  The CLI now refuses an expired token before sending it, naming the expiry and
+  the command that fixes it. It reads the token's own `exp` claim rather than a
+  stored timestamp, so contexts written before this change are covered too.
+  `stone auth whoami` grew a `session:` line for the same reason — "am I still
+  logged in" is the question it is asked, and it used to answer from local state
+  that could not tell. `auth login` now records the expiry on the context as
+  well, but nothing depends on that.
+
+  A token whose expiry cannot be parsed is sent as-is. "Unknown" is not
+  "expired", and refusing one this CLI could not read would turn a claim rename
+  into an outage.
+
+- **`stone pull` wrote live credentials into the workspace.** PocketBase
+  withholds the fields the schema marks hidden — every `private_key` and `seed`
+  — so the leak was not those. It was the material the API legitimately returns
+  to an owner or admin, written to YAML in a directory the README tells you to
+  put in `git`:
+
+  - `nats_users.creds_file` **is** the credential. A user JWT and an nkey seed:
+    the same bytes `stone nats sync-context` deliberately writes under `0600`,
+    written here under `0644`, once per NATS identity in the organization.
+  - `nebula_hosts.config_yaml` carries the host's Nebula private key inline.
+    pb-nebula documents this itself — the standalone `private_key` column can be
+    encrypted at rest and is hidden from the API, and the rendered config
+    containing the same key is neither.
+  - `invites.token` is a bearer credential that redeems into a membership.
+
+  `pull` now drops those, along with the server-generated certificates, JWTs and
+  action triggers on the same collections, and prints what it left out per
+  collection. The full list is in the README.
+
+  This is a **pull-side** filter only: a hand-written `revoke: true` still
+  applies, so nothing here removes a capability.
+
+  **If you have pulled before, the values are already in your workspace and in
+  its git history.** Treat them as disclosed — re-mint with
+  `stone nats-user update <username> --regenerate` and
+  `stone nebula-host update <hostname> --renew` (which mints a fresh keypair,
+  not just a certificate), and delete any invitation whose token was written
+  out.
+
+  The server-generated half was a correctness bug as well as a disclosure one:
+  `apply` sends back every key in a file, so a pulled certificate is a stale
+  value racing whatever the server has rotated to since.
+
+### Added
+
+- **`stone activity`** (`ls` / `get`) — the platform's tenant activity feed,
+  added in platform v0.8.0 and missing here since. Actor, action, record and
+  timestamp, scoped to your organization and readable by every role.
+
+  Read-only because it is read-only everywhere: all three write rules on the
+  collection are nil, so it cannot be forged or rewritten through the API by
+  anyone, tenant or operator. It is deliberately not `audit_logs`, which stays
+  operator-only and carries full record snapshots; this carries no values at
+  all.
+
+  It lists newest-first without being asked — a feed in insertion order is a
+  feed nobody can read — and it is excluded from `pull`/`apply`, because a
+  declarative workspace has nothing to say about a log of what already happened.
+  `--filter 'resource_id="<id>"'` is the one to know: it answers "who touched
+  this device".
+
+- **`stone invite accept <token>`** — redeem an invitation, wrapping the
+  platform's `POST /api/org/invites/accept`. Every other side of the invitation
+  flow was already here; the redeeming end was reachable only through the
+  console, which left the CLI unable to finish the one flow it could start.
+
+  The token is the `?token=` value from the invitation link, not the invite
+  record's id, and the invitation is matched to the caller by email address.
+  Redeeming sets `current_organization` only when it was blank, so the command
+  points at `stone org switch` afterwards — which is also what writes the
+  nats-cli context the new membership has no creds for yet.
+
+- **`--limit` on every `ls`.** A single page rather than a truncated fetch, so
+  it reaches the query: without it `ls` pages through every matching record,
+  which is the wrong thing to ask of a server holding 40,000 things when you
+  wanted the newest ten.
+
+- **A drift test for collections, not just fields.** The three existing schema
+  tests all start from `entitySpecs`, so a collection the CLI models *nothing*
+  for is a collection no test looks at — the suite stays green and the feature
+  is simply missing. That is exactly how `activity` went unnoticed through a
+  schema refresh. A new platform collection now fails until someone writes a
+  spec for it or records in `notAnEntity` why it has none.
+
+### Changed
+
+- **A 401 now says what to do about it.** PocketBase phrases it as "The request
+  requires valid record authorization token to be set", which is accurate and
+  tells nobody anything. This is the belt to the expired-token check's braces:
+  it covers the endpoints that *do* answer 401 rather than serving a guest. A
+  403 deliberately gets no hint — that one means the token is fine and the role
+  is not, and logging in again would not change it.
+
+- **An unknown-collection 404 names the likely cause.** PocketBase answers
+  "Missing collection context." when a collection does not exist, which reads
+  like a client bug and is nearly always the opposite — a CLI that knows about a
+  collection the deployment has not got yet. `stone activity` against a
+  pre-v0.8.0 server is exactly that case. A plain missing *record* is left
+  alone; blaming the server version there would send someone checking a release
+  they do not need to check.
+
+- **The vendored schema is refreshed to platform v0.8.0** (was v0.6.0).
+
+- An entity with no write verb is described as `Read <plural> records` rather
+  than `Manage` in `stone --help`.
 
 ## [0.3.0] - 2026-09-17
 

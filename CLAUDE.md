@@ -40,13 +40,14 @@ A context bundles: `url`, `auth` (PB token + collection + email), `current_organ
 Context names must match `^[A-Za-z0-9_-]{1,50}$` — they're used as filesystem paths.
 
 ### Entity CRUD is data-driven
-`cmd/entity.go` is the heart of typed CRUD. It declares 16 `EntitySpec` values (thing, location, location-type, thing-type, thing-type-operation, organization, membership, invite, nats-user, nats-role, nats-import, nats-export, nats-account, nebula-network, nebula-host, nebula-ca). Each spec lists:
+`cmd/entity.go` is the heart of typed CRUD. It declares 17 `EntitySpec` values (thing, location, location-type, thing-type, thing-type-operation, organization, membership, invite, nats-user, nats-role, nats-import, nats-export, nats-account, nebula-network, nebula-host, nebula-ca, activity). Each spec lists:
 - `Collection` — PocketBase collection name
 - `OrgScoped` — auto-inject `organization` on create / filter by it on `ls`
 - `KeyColumns` — table columns shown by `ls`
-- `Verbs` — empty = full `{ls, get, create, update, delete, edit}`; non-empty restricts (e.g. `nats-account`, `nebula-ca` are `{ls, get, update, edit}` only)
+- `Verbs` — empty = full `{ls, get, create, update, delete, edit}`; non-empty restricts (e.g. `nats-account`, `nebula-ca` are `{ls, get, update, edit}` only; `activity` is `{ls, get}`)
 - `LookupKey` — record field accepted in place of an id by `get`/`update`/`delete`/`edit` (e.g. `code` for things/locations, `name` for most others, `hostname` for nebula-hosts; empty = id only, e.g. membership). Resolution lives in `resolveRecordID`: id-shaped args are tried as ids first, then fall back to an exact, org-scoped `LookupKey` match; 0 or >1 matches error out.
 - `Fields` — typed flags: `FString | FInt | FBool | FJSON | FID | FIDs | FSelect | FMSelect`
+- `DefaultSort` — the PocketBase sort `ls` applies when `--sort` is absent (only `activity` sets one: a feed in insertion order is unreadable)
 
 `registerCRUD` synthesizes Cobra commands from each spec. **To add a new CRUD entity, add an `EntitySpec` — do not write per-entity command files.** `aliases()` auto-generates plural/underscore/hyphen variants so users can type `nats-users`, `nats_users`, `nats_user`, etc. interchangeably.
 
@@ -85,6 +86,12 @@ intentional — do not "fix" them:
   PATCH 404s. They live behind `stone nats account-keys` instead.
 - **File fields** (`locations.floorplan`, `organizations.logo`) — no multipart
   upload path in the client.
+- **Every field on `activity`** — the collection's three write rules are all
+  nil, so nothing can write it through the API at all, tenant or operator. Its
+  spec declares no `Fields` for that reason; the columns it does show are
+  `KeyColumns`, and `actor` / `actor_type` / `resource_id` are left out of those
+  on purpose (see `deliberatelyOmitted`) while remaining the right things to
+  `--filter` on.
 
 Conversely, `things.active` **is** a writable flag, and it is not a label: the
 platform's `hooks/active_flag.go` treats the flip as a decommission (refreshes
@@ -98,19 +105,39 @@ the device could never authenticate. So `thing create --active=false` is
 silently overridden server-side; deactivation is an update. pb-nebula forces the
 same thing on `nebula_hosts` create.
 
-To re-check drift, diff the specs against the platform's `schema.json` — the
-platform repo is normally at `../platform`.
+To re-check drift, refresh the vendored copy and run the tests — the platform
+repo is normally at `../platform`:
+
+```sh
+cp ../platform/schema.json cmd/testdata/schema.json
+go test ./...
+```
+
+`cmd/schema_drift_test.go` checks three directions per spec (a flag for a field
+the platform lacks, a platform field neither exposed nor explained, and a stale
+entry in either omission list) and one direction across the schema as a whole:
+`TestEveryPlatformCollectionIsAccountedFor` fails on a collection the CLI models
+nothing for. That fourth one exists because the other three all start from
+`entitySpecs`, so a brand-new collection is one no test looks at — which is how
+`activity` shipped in platform v0.8.0 and went unnoticed here through a schema
+refresh. A new collection now needs either a spec or an entry in `notAnEntity`
+saying why it has none.
 
 ### Custom platform routes
-
 `internal/pb/client.go` has `CallRoute` (POST) and `GetRoute` (GET) for the
-platform's non-collection endpoints. Four are wrapped:
+platform's non-collection endpoints. Five are wrapped:
 
 - `cmd/creds.go` — `POST /api/me/nats-creds/rotate` and
   `POST /api/org/nats-account/keys`.
 - `cmd/nebula.go` — `POST /api/org/nebula-ca/rotate` and
   `GET /api/org/nebula/cert-audit`.
 - `cmd/thing.go` — `POST /api/org/things`, surfaced as `stone thing provision`.
+- `cmd/invite.go` — `POST /api/org/invites/accept`, surfaced as
+  `stone invite accept <token>`. It is a route because redeeming an invitation
+  writes a `memberships` record on behalf of someone who is not yet in the
+  organization, and every tenant rule is phrased in terms of a membership the
+  caller does not have yet; the token is matched to the caller's own email
+  address instead. Like the rest, it takes no record id.
 
 Three of the first four exist because an API rule cannot express a single-field
 allowlist: permitting one trigger field through an update rule means a deny-list
@@ -138,7 +165,17 @@ It is the only wrapped route that is **not** a replacement for a record write:
 `apply` needs. `provision` is the one to reach for when standing up real
 hardware. It attaches to the generated `thing` command tree through
 `extraCommands` in `cmd/thing.go` — a package-level map `registerCRUD`
-consults, so entity.go does not need to know what it is.
+consults, so entity.go does not need to know what it is. `invite accept`
+attaches the same way, and both **must** be entries in that map's literal:
+package-level vars are initialized before any `init()`, but `init()`s run in
+file-name order and entity.go's — the one that calls `registerCRUD` — sorts
+first, so a command appended from `invite.go`'s or `thing.go`'s `init()` would
+be attached to nothing, silently.
+
+`/api/me/leaf-config` and `/api/client-config` are deliberately NOT wrapped: the
+first requires a `things` session (an agent on the box asks for it, not an
+operator at a terminal), and the second answers a question the browser has and
+this CLI does not.
 
 ### pb-nebula v0.3 and the library-owned fields
 
@@ -160,7 +197,8 @@ never declared them either.
 `cmd/sync.go`:
 - `stone pull` writes one YAML file per record into `<workspace>/<collection>/<key>.yaml`, where `<key>` is the spec's `LookupKey` value, falling back to `name`, then id. Filename collisions get a `-<id>` suffix; records are pulled sorted by id so the suffix lands on the same record across pulls. Filenames are cosmetic — apply identifies records solely by the `id` field inside the file. Org-scoped collections are filtered by `current_organization`. Server-only fields (`collectionId`, `collectionName`, `created`, `updated`, `expand`) are stripped on read (see `pb.ServerOnlyFields` / `pb.Strip`).
 - `stone apply` walks the workspace, infers each record's collection from its parent directory, batches up to **50 ops per request** (`batchSize` constant), and POSTs through PocketBase's transactional `/api/batch`. Records with `id` are PATCHed; records without are POSTed and the server-assigned id is written back into the file. Apply is idempotent. It deliberately does **not** delete records absent from the workspace.
-- The list of collections pull/apply knows about is derived from `entitySpecs` (it reuses `OrgScoped` to inject `organization` on create). Adding an `EntitySpec` automatically extends both pull and apply.
+- The list of collections pull/apply knows about is derived from `entitySpecs`, filtered by `EntitySpec.syncable()` — a spec offering neither `create` nor `update` is skipped by both, because every record it could write already has an id, so apply would PATCH it and a collection with no update rule answers 404. Adding a writable `EntitySpec` automatically extends both pull and apply; adding a read-only one (`activity`) deliberately extends neither. `OrgScoped` is reused to inject `organization` on create.
+- **`pull` does not write credentials or server-generated material** — see `workspaceOmit` in `cmd/sync.go`. PocketBase already withholds the fields the schema marks hidden (every `private_key`, every `seed`), but it returns plenty to an owner or admin that has no business in a git repo: `nats_users.creds_file` **is** the credential (a user JWT and an nkey seed, the same bytes `natsx` writes under `0600`), `nebula_hosts.config_yaml` carries the host's Nebula private key inline, and `invites.token` is a bearer credential that redeems into a membership. Alongside them go the server-generated certificates, JWTs and action triggers, which are a correctness problem rather than a disclosure one: apply sends back every key in a file, so a pulled certificate is a stale value racing whatever the server has rotated to since. `pull` prints what it omitted, per collection. It is a **pull-side** filter only — a hand-written `revoke: true` still applies, so nothing here removes a capability. When adding a field to a spec, ask whether it belongs on this list too; `cmd/sync_test.go` pins the four whose absence is a credential leak.
 
 ### NATS context sync
 `internal/natsx/sync.go` is the non-obvious one. When the stone context has `nats_url` set, `stone org switch <org>` (and `stone nats sync-context`):
@@ -187,10 +225,11 @@ The matching shape lives in `natsCtxFile` and must stay compatible with both nat
 
 ### PocketBase client conventions
 `internal/pb/client.go` is intentionally small. Notable bits:
-- `ListAll` pages with `PerPage=500` by default.
+- `ListAll` pages with `PerPage=500` by default. `ls --limit n` deliberately does not use it — it issues one `List` with `PerPage=n`, so the limit reaches the query rather than the printer.
 - `Batch` wraps `/api/batch` and returns one `BatchResponseItem` per op; surface per-op errors yourself.
-- `DecodeJWTUserID` extracts `id` from the PB JWT without verifying — used after login to populate `Auth.UserID`.
-- All HTTP errors funnel through `PBError`, which renders PocketBase's `data` map.
+- `DecodeJWTUserID` extracts `id` from the PB JWT without verifying — used after login to populate `Auth.UserID`. `DecodeJWTExpiry` / `TokenExpired` read `exp` the same way.
+- **`do` refuses an expired token before sending it**, and this is not belt-and-braces politeness — it is the only thing standing between a dead session and a wrong answer. PocketBase does **not** reject a token it will not accept: it serves the request as a guest, every list rule filters the result to nothing, and the response is `200` with an empty array. An aged-out context therefore printed empty tables, `no organizations visible to this user`, and `pulled 0 records` with exit status 0. The check reads the token's own `exp` claim rather than `Auth.Expires`, so it covers contexts written before the CLI recorded one; a token whose expiry cannot be parsed is sent as-is, because "unknown" is not "expired" and a claim rename should not be an outage.
+- All HTTP errors funnel through `PBError`, which renders PocketBase's `data` map and appends a `stone auth login` hint on 401 — but not on 403, where the token is fine and the role is not.
 
 `internal/pb/serde.go` handles YAML/JSON marshalling for records and table output. `PrintList` / `PrintRecord` honor the global `--output` flag.
 

@@ -60,6 +60,18 @@ var neverExposed = map[string]bool{
 // neither exposed nor listed here fails the test, which is the point: that is
 // what drift looks like on the day it happens.
 var deliberatelyOmitted = map[string][]string{
+	// The activity feed is read-only, so "exposed" here means a table column
+	// rather than a flag -- `get` and `-o json` return the whole record either
+	// way. These three are left out of the columns on purpose: two are the
+	// machine-readable half of a pair whose label is already shown, and
+	// actor_type distinguishes a user from a superuser, which is an operator
+	// distinction a tenant reading its own feed has no use for. All three are
+	// still the right things to FILTER on -- resource_id in particular is what
+	// makes the feed correlatable from the record side:
+	//
+	//	stone activity ls --filter 'resource_id="<id>"'
+	"activity": {"actor", "actor_type", "resource_id"},
+
 	// A file upload. The CLI has no multipart path, so floorplans and logos are
 	// console-only; docs say as much.
 	"locations":     {"floorplan"},
@@ -355,5 +367,59 @@ func TestVendoredSchemaLooksComplete(t *testing.T) {
 
 	if _, err := os.Stat("testdata/schema-source.txt"); err != nil {
 		t.Errorf("testdata/schema-source.txt is missing: nothing records which platform version the vendored schema came from")
+	}
+}
+
+// notAnEntity records, per collection, why the CLI models no entity for it.
+//
+// The three tests above all start from entitySpecs and ask whether each spec
+// still matches the platform. None of them can see the drift that runs the other
+// way: a collection the platform added that the CLI models NOTHING for. Every
+// per-spec check simply does not run, the suite stays green, and the feature is
+// missing rather than broken -- which is how `activity` shipped in platform
+// v0.8.0 and went unnoticed here through a schema refresh.
+//
+// So this list is the other half of the vendored schema's job. A new collection
+// fails until someone either writes a spec for it or says here why not.
+var notAnEntity = map[string]string{
+	// PocketBase's own.
+	"_superusers": "PocketBase's superuser collection; managed with the pocketbase binary, not this CLI",
+
+	// Operator-only, by API rule. A tenant command for these would 404, and an
+	// operator has the console and the PocketBase admin UI.
+	"audit_logs":           "operator-only forensic trail with full record snapshots; no organization column, so it cannot be tenant-scoped",
+	"email_templates":      "superuser-only; edited in the operator console",
+	"nats_system_operator": "the NATS operator singleton, superuser-only; its public half reaches an edge box through GET /api/me/leaf-config",
+	"nats_publish_queue":   "pb-nats's internal outbox for account claims; server-owned plumbing, not a tenant resource",
+
+	// Users are managed through the collections the CLI does expose.
+	"users": "a user is reached through memberships and invites here; self-service account editing belongs to the console",
+}
+
+func TestEveryPlatformCollectionIsAccountedFor(t *testing.T) {
+	schema := loadVendoredSchema(t)
+
+	modelled := map[string]bool{}
+	for _, s := range entitySpecs {
+		modelled[s.Collection] = true
+	}
+
+	for name := range schema {
+		if modelled[name] || notAnEntity[name] != "" {
+			continue
+		}
+		t.Errorf("the platform has a %q collection that this CLI does not model: no command reaches it.\n"+
+			"Either add an EntitySpec, or add notAnEntity[%q] with the reason it has none.\n%s",
+			name, name, refreshHint)
+	}
+
+	// The reverse, so the list does not outlive the collections it excuses.
+	for name := range notAnEntity {
+		if _, ok := schema[name]; !ok {
+			t.Errorf("notAnEntity excuses %q, which the platform no longer has -- drop the entry", name)
+		}
+		if modelled[name] {
+			t.Errorf("notAnEntity excuses %q, but entitySpecs now models it -- drop the entry", name)
+		}
 	}
 }

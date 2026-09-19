@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/stone-age-io/stone-cli/internal/ctx"
+	"github.com/stone-age-io/stone-cli/internal/pb"
 	"golang.org/x/term"
 )
 
@@ -77,6 +79,13 @@ var authLoginCmd = &cobra.Command{
 		c.Auth.Collection = collection
 		c.Auth.Token = ar.Token
 		c.Auth.Email = email
+		// Recorded so `context show` and `whoami` can say when the session runs
+		// out. Nothing depends on it being present -- the expiry check in
+		// pb.Client reads the token's own `exp` claim -- so a context written
+		// before this existed behaves identically.
+		if exp, err := pb.DecodeJWTExpiry(ar.Token); err == nil && !exp.IsZero() {
+			c.Auth.Expires = exp.UTC().Format(time.RFC3339)
+		}
 		if id, ok := ar.Record["id"].(string); ok {
 			c.Auth.UserID = id
 		}
@@ -130,6 +139,22 @@ var authWhoamiCmd = &cobra.Command{
 		fmt.Printf("email:                %s\n", c.Auth.Email)
 		fmt.Printf("user_id:              %s\n", c.Auth.UserID)
 		fmt.Printf("current_organization: %s\n", or(c.CurrentOrganization, "(unset)"))
+
+		// Read from the token rather than from c.Auth.Expires, so this answers
+		// for a context written before the CLI recorded one. It matters more
+		// here than anywhere else: an expired session does not announce itself
+		// -- PocketBase serves the request as a guest and every list comes back
+		// empty -- so "am I still logged in" is exactly the question whoami is
+		// asked, and it used to answer from local state that could not tell.
+		exp, err := pb.DecodeJWTExpiry(c.Auth.Token)
+		switch {
+		case err != nil || exp.IsZero():
+			fmt.Println("session:              (expiry not readable from the token)")
+		case time.Now().After(exp):
+			fmt.Printf("session:              EXPIRED %s — run: stone auth login\n", exp.Local().Format(time.RFC1123))
+		default:
+			fmt.Printf("session:              valid until %s\n", exp.Local().Format(time.RFC1123))
+		}
 		return nil
 	},
 }
