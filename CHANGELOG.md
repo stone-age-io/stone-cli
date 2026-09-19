@@ -10,6 +10,24 @@ that period, and this file starts where the versioned releases do.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.5.0] - 2026-09-19
+
+**Ids were for the machine; this release gives the human the codes back.** A
+relation used to print as a 15-char PocketBase id — `stone thing ls` showed a
+`TYPE` column of `pbc247972991`-shaped strings that nobody recognises. Table and
+`get` output now print the target's natural key, and organizations are addressed
+by their code throughout: in the column, at `org switch`, and at
+`organization get`.
+
+One rule connects the two changes, and it is worth stating because it also says
+what is *not* in them: **the value you see is the value you may type.** So
+`-o json` and `-o yaml` are untouched — they are the scripting surface and still
+return exactly what the server sent, relation ids and all — and create/update
+flags still take ids. Reading is where the ids were unreadable; writing is where
+they are unambiguous.
+
 ### Changed
 
 - **Organizations are addressed by code.** `org ls` gained a `CODE` column and a
@@ -497,7 +515,8 @@ Summarising the state at first tag rather than the path to it:
 - `auth login` is interactive by design; credentials cannot be discovered by the
   CLI, which is also what stops an assistant authenticating as you.
 
-[Unreleased]: https://github.com/stone-age-io/stone-cli/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/stone-age-io/stone-cli/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/stone-age-io/stone-cli/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/stone-age-io/stone-cli/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/stone-age-io/stone-cli/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/stone-age-io/stone-cli/compare/v0.1.0...v0.2.0
