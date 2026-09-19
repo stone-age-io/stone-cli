@@ -10,6 +10,25 @@ that period, and this file starts where the versioned releases do.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.4.0] - 2026-09-19
+
+**Two things that looked like success and were not.** `stone pull` wrote live
+NATS and Nebula credentials into the workspace — the directory this project's
+own docs tell you to commit to `git`. And an expired session was
+indistinguishable from an empty organization: PocketBase serves a token it will
+not accept as a *guest*, so every list came back empty with exit status 0.
+
+**If you have ever run `stone pull`, this release asks something of you**: the
+credentials it wrote are in your workspace and in its history. See **Fixed**
+for what to re-mint. Upgrading stops new ones being written; it cannot unwrite
+the old.
+
+It also catches the CLI up to platform **v0.8.0** — `stone activity`, the tenant
+feed of who changed what — and adds `stone invite accept`, which was the one
+documented tenant route with no command behind it.
+
 ### Fixed
 
 - **An expired session looked exactly like an empty organization.** PocketBase
@@ -402,7 +421,8 @@ Summarising the state at first tag rather than the path to it:
 - `auth login` is interactive by design; credentials cannot be discovered by the
   CLI, which is also what stops an assistant authenticating as you.
 
-[Unreleased]: https://github.com/stone-age-io/stone-cli/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/stone-age-io/stone-cli/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/stone-age-io/stone-cli/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/stone-age-io/stone-cli/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/stone-age-io/stone-cli/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/stone-age-io/stone-cli/releases/tag/v0.1.0
