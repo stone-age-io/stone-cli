@@ -10,6 +10,15 @@ that period, and this file starts where the versioned releases do.
 
 ## [Unreleased]
 
+Nothing yet.
+
+## [0.5.1] - 2026-09-22
+
+**The one place 0.5.0 missed.** The first thing you see after `stone auth login`
+is your current organization, and it was still a bare id. It is now the code,
+with the name and id beside it. Nothing you type changes, and neither does
+`-o json` / `-o yaml` output.
+
 ### Changed
 
 - **The current organization prints as a code after login, too.** 0.5.0 gave
@@ -530,7 +539,8 @@ Summarising the state at first tag rather than the path to it:
 - `auth login` is interactive by design; credentials cannot be discovered by the
   CLI, which is also what stops an assistant authenticating as you.
 
-[Unreleased]: https://github.com/stone-age-io/stone-cli/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/stone-age-io/stone-cli/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/stone-age-io/stone-cli/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/stone-age-io/stone-cli/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/stone-age-io/stone-cli/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/stone-age-io/stone-cli/compare/v0.2.0...v0.3.0
