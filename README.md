@@ -90,7 +90,7 @@ auth:
   expires: 2026-10-19T03:54:32Z   # from the token's exp claim; informational
   email: admin@example.com
   user_id: abc123xyz0...
-current_organization: orgID0000000001
+current_organization: orgID0000000001   # the id; commands display it as code (name) [id]
 nats_context: stone-local      # nats-cli context to connect with; required for NATS commands
 workspace: /home/me/my-workspace
 ```

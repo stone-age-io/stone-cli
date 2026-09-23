@@ -61,14 +61,19 @@ working in. Use ` + "`stone org switch`" + ` for that.`,
 			// error, and the invitation is deleted either way.
 			return nil
 		}
+		// The route answers with an id; name the org by code so the hint below
+		// can be pasted as-is. Falls back to the id, which `org switch` takes too.
+		target := "<code|name|id>"
 		if out.Organization != "" {
-			fmt.Printf("organization: %s\n", out.Organization)
+			code, name := lookupOrg(c, out.Organization)
+			target = or(code, out.Organization)
+			fmt.Printf("organization: %s\n", formatOrg(out.Organization, code, name))
 		}
 		// The local context is a cache of the server's current_organization, and
 		// the route may have just set it. Rather than guess which way it went,
 		// point at the command that reconciles both -- and that also syncs the
 		// NATS context, which a fresh membership has no creds for until it runs.
-		fmt.Println("\nnext: stone org switch <code|name|id>   (sets the active org and syncs its NATS context)")
+		fmt.Printf("\nnext: stone org switch %s   (sets the active org and syncs its NATS context)\n", target)
 		return nil
 	},
 }

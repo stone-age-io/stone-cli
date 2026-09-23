@@ -98,7 +98,7 @@ var authLoginCmd = &cobra.Command{
 		}
 		fmt.Printf("logged in as %s (collection=%s)\n", email, collection)
 		if c.CurrentOrganization != "" {
-			fmt.Printf("current_organization: %s\n", c.CurrentOrganization)
+			fmt.Printf("current_organization: %s\n", orgLabel(c))
 		}
 		return nil
 	},
@@ -138,7 +138,7 @@ var authWhoamiCmd = &cobra.Command{
 		fmt.Printf("collection:           %s\n", c.Auth.Collection)
 		fmt.Printf("email:                %s\n", c.Auth.Email)
 		fmt.Printf("user_id:              %s\n", c.Auth.UserID)
-		fmt.Printf("current_organization: %s\n", or(c.CurrentOrganization, "(unset)"))
+		fmt.Printf("current_organization: %s\n", orgLabel(c))
 
 		// Read from the token rather than from c.Auth.Expires, so this answers
 		// for a context written before the CLI recorded one. It matters more

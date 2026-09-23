@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 	"text/tabwriter"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/stone-age-io/stone-cli/internal/ctx"
@@ -96,6 +97,56 @@ var orgCurrentCmd = &cobra.Command{
 
 // pocketbaseIDRE matches PocketBase's 15-char alphanumeric record IDs.
 var pocketbaseIDRE = regexp.MustCompile(`^[A-Za-z0-9]{15}$`)
+
+// orgLabelTimeout bounds the lookup behind orgLabel. The label decorates
+// commands that otherwise never touch the network (`context show`, `whoami`),
+// so an unreachable server must cost a moment, not the client's 30 seconds.
+const orgLabelTimeout = 5 * time.Second
+
+// orgLabel renders the context's current organization for a human:
+// `code (name) [id]`. context.yaml keeps the id -- it is what the server's
+// users.current_organization holds and what every org filter compares
+// against -- so this is display only. Best-effort: any failure (offline,
+// expired session, no read access) prints the bare id rather than nothing.
+//
+// Not used by `org current`, whose line keeps the id first for anything
+// reading it by position.
+func orgLabel(c ctx.Context) string {
+	if c.CurrentOrganization == "" {
+		return "(unset)"
+	}
+	code, name := lookupOrg(c, c.CurrentOrganization)
+	return formatOrg(c.CurrentOrganization, code, name)
+}
+
+// formatOrg renders `code (name) [id]`, dropping whichever parts are blank.
+func formatOrg(id, code, name string) string {
+	switch {
+	case code != "" && name != "":
+		return fmt.Sprintf("%s (%s) [%s]", code, name, id)
+	case code != "" || name != "":
+		return fmt.Sprintf("%s [%s]", code+name, id)
+	default:
+		return id
+	}
+}
+
+// lookupOrg fetches an organization's code and name, returning blanks on any
+// failure. Callers decorate output with the result; none may depend on it.
+func lookupOrg(c ctx.Context, id string) (code, name string) {
+	if c.Auth.Token == "" || id == "" {
+		return "", ""
+	}
+	client := newPBClient(c)
+	client.HTTP.Timeout = orgLabelTimeout
+	rec, err := client.Get("organizations", id, pb.GetOptions{Fields: "id,code,name"})
+	if err != nil {
+		return "", ""
+	}
+	code, _ = rec["code"].(string)
+	name, _ = rec["name"].(string)
+	return code, name
+}
 
 var orgSwitchCmd = &cobra.Command{
 	Use:   "switch <code|name|id>",

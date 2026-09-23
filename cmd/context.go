@@ -113,7 +113,7 @@ var contextShowCmd = &cobra.Command{
 		fmt.Printf("auth.collection:      %s\n", or(c.Auth.Collection, "(unset)"))
 		fmt.Printf("auth.email:           %s\n", or(c.Auth.Email, "(unset)"))
 		fmt.Printf("auth.expires:         %s\n", or(c.Auth.Expires, "(unset)"))
-		fmt.Printf("current_organization: %s\n", or(c.CurrentOrganization, "(unset)"))
+		fmt.Printf("current_organization: %s\n", orgLabel(c))
 		switch {
 		case c.NATSContext == "":
 			fmt.Println("nats_context:         (unset — run: stone nats sync-context)")

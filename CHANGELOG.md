@@ -10,7 +10,22 @@ that period, and this file starts where the versioned releases do.
 
 ## [Unreleased]
 
-Nothing yet.
+### Changed
+
+- **The current organization prints as a code after login, too.** 0.5.0 gave
+  `org ls`, `org switch` and relation columns the code, but `auth login`,
+  `auth whoami` and `context show` still printed `current_organization` as a
+  bare id. They now print `acme (Acme Industries) [r03ixjyfs4fbkp2]`.
+
+  **`context.yaml` still stores the id**: it mirrors
+  `users.current_organization` on the server and is what every org-scoped filter
+  compares against, so this is display only. The label is a best-effort lookup
+  with a 5-second limit — offline, or with an expired session, it falls back to
+  the bare id rather than to nothing. `org current` is unchanged; its line keeps
+  the id first for anything reading it by position.
+
+- **`invite accept` names the organization you joined by code**, and its
+  `next: stone org switch …` hint carries that code, so it can be pasted as-is.
 
 ## [0.5.0] - 2026-09-19
 

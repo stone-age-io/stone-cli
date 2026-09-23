@@ -39,6 +39,13 @@ A context bundles: `url`, `auth` (PB token + collection + email), `current_organ
 
 Context names must match `^[A-Za-z0-9_-]{1,50}$` — they're used as filesystem paths.
 
+`current_organization` stores the organization **id** and must keep doing so: it
+mirrors the server's `users.current_organization` relation, and every org filter
+and injected `organization` field needs the id. Humans see it through `orgLabel`
+(`cmd/org.go`) as `code (name) [id]` — a best-effort lookup that falls back to
+the bare id. `org current` deliberately does not use it: its line keeps the id
+first for positional readers.
+
 ### Entity CRUD is data-driven
 `cmd/entity.go` is the heart of typed CRUD. It declares 17 `EntitySpec` values (thing, location, location-type, thing-type, thing-type-operation, organization, membership, invite, nats-user, nats-role, nats-import, nats-export, nats-account, nebula-network, nebula-host, nebula-ca, activity). Each spec lists:
 - `Collection` — PocketBase collection name
