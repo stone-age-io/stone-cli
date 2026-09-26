@@ -295,9 +295,11 @@ Read-only (`ls / get`):
 the entity's natural key: `code` (`thing`, `location`, `location-type`,
 `thing-type`, `organization`), `hostname` (`nebula-host`), `nats_username`
 (`nats-user`), `email` (`invite`), and `name` for everything else. `membership`
-is id-only. Key lookups are exact-match and scoped to the current organization;
-no match fails with `no <entity> with <key> "<arg>"`, and multiple matches fail
-with the candidate ids listed.
+is id-only. Key lookups are scoped to the current organization and exact-match,
+except that a `code` ignores case: the platform's code uniqueness does too, so
+`ca-9kd-4px` finds `CA-9KD-4PX` and can never find two records. No match fails
+with `no <entity> with <key> "<arg>"`, and multiple matches fail with the
+candidate ids listed.
 
 `organization` is the one entity with two human keys, and accepts **either**:
 its `code` is tried first, then its `name`. Both are unique columns on the
@@ -396,6 +398,14 @@ and prints it once to **stderr**, so stdout stays clean for `jq`:
 
 `--password` and `--random-password` are mutually exclusive; exactly one must be
 passed.
+
+**Codes (platform ADR 0003).** `--code` is optional on `thing create`,
+`location create` and `thing provision`: leave it out and the server generates
+one under the type's `--prefix`, like `CA-9KD-4PX`, returned with the record. A
+code stencilled on the hardware (`DOOR-1`) is still the right one to pass. A
+code is frozen once set, and so is a Thing's or Location's `--type`; a wrong
+type is fixed by delete and recreate. Code uniqueness ignores case, so
+`stone thing get ca-9kd-4px` finds `CA-9KD-4PX`.
 
 ### Provisioning a device in one transaction
 
@@ -599,8 +609,8 @@ the command reports success.
   `updateRule`s admit no tenant role, so an owner/admin PATCH of any field on
   either collection returns 404. The legitimate tenant operations live behind
   routes instead: `stone nats account-keys` and `stone nebula ca-rotate`.
-- Locations' `floorplan` and organizations' `logo` are file fields; the CLI has
-  no upload path for them. Use the console.
+- Locations' `floorplan`, things' and locations' `photo`, and organizations'
+  `logo` are file fields; the CLI has no upload path for them. Use the console.
 
 ## AI assistant integration
 

@@ -52,7 +52,7 @@ first for positional readers.
 - `OrgScoped` — auto-inject `organization` on create / filter by it on `ls`
 - `KeyColumns` — table columns shown by `ls`
 - `Verbs` — empty = full `{ls, get, create, update, delete, edit}`; non-empty restricts (e.g. `nats-account`, `nebula-ca` are `{ls, get, update, edit}` only; `activity` is `{ls, get}`)
-- `LookupKey` — record field accepted in place of an id by `get`/`update`/`delete`/`edit` (e.g. `code` for things/locations/organizations, `name` for most others, `hostname` for nebula-hosts; empty = id only, e.g. membership). Resolution lives in `resolveRecordID`: id-shaped args are tried as ids first, then fall back to an exact, org-scoped `LookupKey` match; 0 or >1 matches error out.
+- `LookupKey` — record field accepted in place of an id by `get`/`update`/`delete`/`edit` (e.g. `code` for things/locations/organizations, `name` for most others, `hostname` for nebula-hosts; empty = id only, e.g. membership). Resolution lives in `resolveRecordID`: id-shaped args are tried as ids first, then fall back to an org-scoped `LookupKey` match; 0 or >1 matches error out. The match is exact **except for `code`, which ignores case** (`keyFilter`): the platform's code indexes are `COLLATE NOCASE` since its ADR 0003, so a folded match cannot find two records. Do not fold anything else; nothing makes names case-unique.
 - `AltLookupKeys` — further fields accepted in place of an id, tried in order after `LookupKey`. Only `organization` has any (`name`, after `code`). They are tried ONE QUERY AT A TIME rather than OR-ed into a single filter, and that is the point: `organizations.code` and `organizations.name` are both unique columns, so a combined query could match two different records and force the CLI to refuse a lookup that is perfectly well defined. First key to match exactly one record wins, so a code beats a name.
 - `Fields` — typed flags: `FString | FInt | FBool | FJSON | FID | FIDs | FSelect | FMSelect`
 - `DefaultSort` — the PocketBase sort `ls` applies when `--sort` is absent (only `activity` sets one: a feed in insertion order is unreadable)
@@ -94,8 +94,8 @@ intentional — do not "fix" them:
 - **`nats-account.rotate_keys` / `add_signing_key` / `remove_signing_key`** —
   the fields exist, but `nats_accounts.updateRule` is operator-only, so a tenant
   PATCH 404s. They live behind `stone nats account-keys` instead.
-- **File fields** (`locations.floorplan`, `organizations.logo`) — no multipart
-  upload path in the client.
+- **File fields** (`locations.floorplan`, `things.photo`, `locations.photo`,
+  `organizations.logo`) — no multipart upload path in the client.
 - **Every field on `activity`** — the collection's three write rules are all
   nil, so nothing can write it through the API at all, tenant or operator. Its
   spec declares no `Fields` for that reason; the columns it does show are

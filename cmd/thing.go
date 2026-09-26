@@ -48,6 +48,11 @@ The Thing's email and password are generated server-side. The password is
 printed ONCE and never stored in retrievable form; record it now or reset it
 later.
 
+--code is optional. Leave it out and the server generates one under the Thing
+Type's prefix, like CA-9KD-4PX, and prints it with the rest. A code stencilled
+on the hardware (DOOR-1) is still the right one to pass. Either way it is
+frozen once the Thing exists, as is --type.
+
 Each identity has three modes:
 
     none    (default) provision nothing.
@@ -65,8 +70,8 @@ this cannot be aimed at another tenant.
 
 Examples:
 
-  # inventory only, no identities
-  stone thing provision --code probe-07 --name "Probe 07"
+  # inventory only, no identities; the server generates the code
+  stone thing provision --name "Probe 07" --type <thing_types_id>
 
   # a gateway with a fresh NATS identity and a fresh Nebula host
   stone thing provision --code gw-01 --name "Gateway 01" \
@@ -183,9 +188,9 @@ var extraCommands = map[string][]*cobra.Command{
 func init() {
 	f := thingProvisionCmd.Flags()
 	f.String("name", "", "display name (required)")
-	f.String("code", "", "stable short code, unique within the organization (required)")
+	f.String("code", "", "stable short code, unique within the organization ignoring case; omit it to have one generated under the type's prefix")
 	f.String("description", "", "free-form description")
-	f.String("type", "", "thing_types id")
+	f.String("type", "", "thing_types id; its prefix goes into a generated code (frozen once set)")
 	f.String("location", "", "locations id")
 	f.String("metadata", "", "arbitrary JSON metadata (inline JSON, @file, or -)")
 
@@ -199,5 +204,4 @@ func init() {
 	f.String("nebula-ip", "", "overlay IP for the new host (--nebula-mode auto; not allocated for you)")
 
 	_ = thingProvisionCmd.MarkFlagRequired("name")
-	_ = thingProvisionCmd.MarkFlagRequired("code")
 }

@@ -72,9 +72,10 @@ var deliberatelyOmitted = map[string][]string{
 	//	stone activity ls --filter 'resource_id="<id>"'
 	"activity": {"actor", "actor_type", "resource_id"},
 
-	// A file upload. The CLI has no multipart path, so floorplans and logos are
-	// console-only; docs say as much.
-	"locations":     {"floorplan"},
+	// A file upload. The CLI has no multipart path, so floorplans, photos and
+	// logos are console-only; docs say as much.
+	"things":        {"photo"},
+	"locations":     {"floorplan", "photo"},
 	"organizations": {"logo", "is_system_org", "is_operator_org"},
 
 	// Secret material and server-derived state. The credential itself is

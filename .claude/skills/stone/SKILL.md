@@ -143,9 +143,16 @@ stone thing create --email s42@example.com --password 'changeMe123!' \
 stone thing create --email s43@example.com --random-password \
     --code sensor-43 --type <thing_type_id> -o json 2> pw.txt
 
-stone thing get sensor-42 --fields code,name,location   # lookup by code or id
+stone thing get sensor-42 --fields code,name,location   # lookup by code (case ignored) or id
 stone thing edit sensor-42         # opens $EDITOR with YAML, PATCHes on save
 ```
+
+### Codes
+
+- `--code` is optional on `thing create`, `location create` and `thing provision`. Omitted, the server generates one under the type's prefix (`CA-9KD-4PX`); read it back from `-o json`.
+- Set a type's prefix with `--prefix` (1-4 capitals) on `thing-type` / `location-type`. Thing and Location prefixes must differ; the server refuses a clash.
+- A code is frozen once set. A Thing's or Location's `--type` is too: an update that changes it returns 404. Fix a wrong type by delete and recreate.
+- Code lookups ignore case; everything else is exact.
 
 ### Provisioning a device
 

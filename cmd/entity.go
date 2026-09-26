@@ -147,9 +147,9 @@ var entitySpecs = []EntitySpec{
 			{Name: "email", Type: FString, Required: true, Help: "thing's auth email (required by the things auth collection)"},
 			{Name: "password", Type: FString, Required: true, Help: "thing's auth password (min 8 chars)"},
 			{Name: "name", Type: FString, Help: "display name"},
-			{Name: "code", Type: FString, Help: "stable short code"},
+			{Name: "code", Type: FString, Help: "stable short code; omit it and the server generates one under the type's prefix, e.g. CA-9KD-4PX (IMMUTABLE once set)"},
 			{Name: "description", Type: FString, Help: "free-form description"},
-			{Name: "type", Type: FID, Help: "thing_types id"},
+			{Name: "type", Type: FID, Help: "thing_types id (FROZEN once set: fix a wrong type by delete and recreate)"},
 			{Name: "location", Type: FID, Help: "locations id"},
 			{Name: "metadata", Type: FJSON, Help: "arbitrary JSON metadata"},
 			{Name: "floorplan_position", Type: FJSON, Help: "floorplan placement as JSON (e.g. {\"x\":12,\"y\":34})"},
@@ -173,9 +173,9 @@ var entitySpecs = []EntitySpec{
 		LookupKey:  "code",
 		Fields: []Field{
 			{Name: "name", Type: FString, Help: "display name"},
-			{Name: "code", Type: FString, Help: "stable short code"},
+			{Name: "code", Type: FString, Help: "stable short code, ideally the name on the door (RM-204); omit it and the server generates one under the type's prefix (IMMUTABLE once set)"},
 			{Name: "description", Type: FString, Help: "free-form description"},
-			{Name: "type", Type: FID, Help: "location_types id"},
+			{Name: "type", Type: FID, Help: "location_types id (FROZEN once set: fix a wrong type by delete and recreate)"},
 			{Name: "parent", Type: FID, Help: "parent locations id (for hierarchy)"},
 			{Name: "coordinates", Type: FJSON, Help: `geo point as JSON: {"lat":<num>,"lon":<num>}`},
 			{Name: "metadata", Type: FJSON, Help: "arbitrary JSON metadata"},
@@ -191,6 +191,7 @@ var entitySpecs = []EntitySpec{
 		Fields: []Field{
 			{Name: "name", Type: FString, Help: "display name"},
 			{Name: "code", Type: FString, Help: "stable short code"},
+			{Name: "prefix", Type: FString, Help: "1-4 capitals (e.g. BLD) copied into codes generated for locations of this type; must differ from every thing-type prefix; changing it affects future codes only"},
 			{Name: "description", Type: FString, Help: "free-form description"},
 			{Name: "metadata_schema", Type: FJSON, Help: "JSON Schema that validates locations.metadata for this type (inline JSON, @file, or -)"},
 		},
@@ -205,8 +206,9 @@ var entitySpecs = []EntitySpec{
 		Fields: []Field{
 			{Name: "name", Type: FString, Help: "display name"},
 			{Name: "code", Type: FString, Help: "stable short code"},
+			{Name: "prefix", Type: FString, Help: "1-4 capitals (e.g. CA) copied into codes generated for things of this type; must differ from every location-type prefix; changing it affects future codes only"},
 			{Name: "description", Type: FString, Help: "free-form description"},
-			{Name: "subject_prefix", Type: FString, Help: "subject prefix template"},
+			{Name: "subject_prefix", Type: FString, Help: "subject prefix template; blank means {thing_type_code}.{thing}"},
 			{Name: "operations", Type: FIDs, Help: "thing_type_operations ids (comma-separated or repeat flag)"},
 			{Name: "metadata_schema", Type: FJSON, Help: "JSON Schema that validates things.metadata for this type (inline JSON, @file, or -)"},
 		},
@@ -765,10 +767,27 @@ func (s EntitySpec) lookupKeys() []string {
 	return append([]string{s.LookupKey}, s.AltLookupKeys...)
 }
 
+// keyFilter is the PocketBase filter matching one lookup key against arg.
+//
+// A code is matched IGNORING CASE, and nothing else is. The platform's unique
+// indexes on code are COLLATE NOCASE (ADR 0003 in platform-docs), so `cam-1`
+// and `CAM-1` cannot both exist in one organization, and a case-folded match
+// can never find two records where an exact one would have found one. That makes
+// `stone thing get ca-9kd-4px` find `CA-9KD-4PX` safely, which is what a
+// person typing a generated code expects. Names are left exact: nothing makes
+// them case-unique, so folding them could turn one match into two.
+func keyFilter(key, arg string) string {
+	if key == "code" {
+		return fmt.Sprintf(`code:lower="%s"`, escapePBString(strings.ToLower(arg)))
+	}
+	return fmt.Sprintf(`%s="%s"`, key, escapePBString(arg))
+}
+
 // resolveRecordID resolves a positional <id|key> argument to a record id.
 // Id-shaped args are tried as ids first; anything else — or an id-shaped arg
-// that doesn't resolve — is matched exactly against the spec's lookup keys in
-// order, scoped to the current organization for org-scoped collections.
+// that doesn't resolve — is matched against the spec's lookup keys in order
+// (exactly, except that a code ignores case: see keyFilter), scoped to the
+// current organization for org-scoped collections.
 //
 // Trying the keys IN ORDER rather than OR-ing them into one filter is what makes
 // `organization` unambiguous. Both its `code` and its `name` are unique columns,
@@ -791,7 +810,7 @@ func resolveRecordID(client *pb.Client, spec EntitySpec, orgID, arg string) (str
 	}
 
 	for _, key := range keys {
-		filter := composeOrgFilter(spec, orgID, fmt.Sprintf(`%s="%s"`, key, escapePBString(arg)))
+		filter := composeOrgFilter(spec, orgID, keyFilter(key, arg))
 		items, err := client.ListAll(spec.Collection, pb.ListOptions{Filter: filter, Fields: "id"})
 		if err != nil {
 			return "", err

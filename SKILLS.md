@@ -74,7 +74,7 @@ Verbs `ls / get / create / update / delete / edit` are derived from a single dec
 | `nebula-ca` | `nebula_ca` | yes | `name` | `ls / get / update / edit` |
 | `activity` | `activity` | yes | — (id only) | `ls / get` |
 
-`get`, `update`, `delete`, and `edit` take a positional `<id|lookup-key>`: either a 15-char PocketBase id or the entity's lookup key from the table above. Key lookups are exact-match and scoped to the current organization; no match fails with `no <entity> with <key> "<arg>"`, and multiple matches fail with the candidate ids listed.
+`get`, `update`, `delete`, and `edit` take a positional `<id|lookup-key>`: either a 15-char PocketBase id or the entity's lookup key from the table above. Key lookups are scoped to the current organization and exact-match, except that a `code` ignores case (the platform's code uniqueness does too, so a case-folded match cannot find two records); no match fails with `no <entity> with <key> "<arg>"`, and multiple matches fail with the candidate ids listed.
 
 `get` (alias `show`) prints one record. Both `get` and `ls` accept `--fields a,b,c` for server-side projection (PocketBase's `fields` query param); on `ls` table output the requested fields become the columns.
 
@@ -106,6 +106,14 @@ stone thing create --email reader-01@things.example.com --code reader-01 \
 # stderr: generated password: <value>
 # stdout: { ...record... }
 ```
+
+**Codes (platform ADR 0003).** `--code` is optional on `thing create`,
+`location create` and `thing provision`: leave it out and the server generates
+one under the type's `--prefix`, like `CA-9KD-4PX`, returned with the record. A
+code stencilled on the hardware (`DOOR-1`) is still the right one to pass. A
+code is frozen once set, and so is a Thing's or Location's `--type`; a wrong
+type is fixed by delete and recreate. Code uniqueness ignores case, so
+`stone thing get ca-9kd-4px` finds `CA-9KD-4PX`.
 
 ### Provisioning a device (prefer this over `create` for real hardware)
 
@@ -287,7 +295,7 @@ Requires a platform on **pb-nebula v0.3.0+**. Against v0.2.0 the routes 404 and 
 - `apply` does not delete server records absent from the workspace.
 - No JetStream **consumer** management (use `nats` CLI).
 - `nats-account` and `nebula-ca` are **operator-only for every field** — both `updateRule`s admit no tenant role, so an owner/admin PATCH of any field on either returns 404. The tenant operations live behind routes: `stone nats account-keys` and `stone nebula ca-rotate`.
-- File fields have no CLI upload path: `locations.floorplan`, `organizations.logo`. Use the console.
+- File fields have no CLI upload path: `locations.floorplan`, `things.photo`, `locations.photo`, `organizations.logo`. Use the console.
 
 ## Configuration files
 

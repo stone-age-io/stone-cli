@@ -19,11 +19,27 @@ ignored it.
 
 ### Added
 
+- **Platform ADR 0003: generated codes.** `--code` is optional on
+  `thing provision`, as it already was on `thing create` and
+  `location create`: omitted, the platform generates one under the type's
+  prefix (`CA-9KD-4PX`) and `provision` prints it. `thing-type` and
+  `location-type` gain `--prefix` (1–4 capitals; Thing and Location prefixes
+  must differ). Help text says a code and a Thing's or Location's `--type` are
+  frozen once set.
 - **`stone nats-user update <username> --active=false`** suspends an identity:
   pb-nats revokes its key and issues nothing back. `--active=true` reactivates
   it with a fresh credential. Owner/admin. `active` is still omitted from
   `pull`, now for the trigger reason: pb-nats acts on the change, so a stale
   value re-applied would suspend or un-suspend someone.
+
+### Changed
+
+- **A code lookup ignores case.** `stone thing get ca-9kd-4px` finds
+  `CA-9KD-4PX`. The platform's code uniqueness ignores case too, so the folded
+  match cannot find two records. Every other lookup key is still exact.
+- **The vendored `schema.json` is refreshed.** `things.photo` and
+  `locations.photo` are file fields and join `floorplan` and `logo` as
+  deliberately not flags.
 
 ### Fixed
 

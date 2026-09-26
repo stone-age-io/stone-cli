@@ -270,6 +270,27 @@ func TestComposeOrgFilter(t *testing.T) {
 	}
 }
 
+// A code is looked up ignoring case because the platform's unique indexes on
+// code fold case (ADR 0003), so the folded match cannot find two records. A name
+// is NOT folded: nothing makes names case-unique, so folding could turn one match
+// into an ambiguous two. Quotes in the argument are escaped either way.
+func TestKeyFilterFoldsCodeCaseAndNothingElse(t *testing.T) {
+	cases := []struct {
+		key, arg, want string
+	}{
+		{"code", "CA-9KD-4PX", `code:lower="ca-9kd-4px"`},
+		{"code", "ca-9kd-4px", `code:lower="ca-9kd-4px"`},
+		{"name", "Lobby Camera", `name="Lobby Camera"`},
+		{"hostname", "Edge-West", `hostname="Edge-West"`},
+		{"code", `a"b`, `code:lower="a\"b"`},
+	}
+	for _, c := range cases {
+		if got := keyFilter(c.key, c.arg); got != c.want {
+			t.Errorf("keyFilter(%q, %q) = %s, want %s", c.key, c.arg, got, c.want)
+		}
+	}
+}
+
 func TestSplitFields(t *testing.T) {
 	cases := map[string][]string{
 		"code,name":     {"code", "name"},
