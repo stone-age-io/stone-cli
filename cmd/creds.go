@@ -33,12 +33,14 @@ var natsCredsRotateCmd = &cobra.Command{
 	Short: "Rotate your own NATS credential",
 	Long: `Rotate the NATS credential linked to your own identity.
 
-Available to every role, including badge, and to things as well as users.
+Available to every role, including dashboard, and to things as well as users.
 Takes no id: the route derives the target from your auth token, so it
-can only ever rotate your own credential.
+can only ever rotate your own credential. Refused (403) while the identity is
+suspended -- a re-signed credential would otherwise lift the suspension.
 
-Rotation is not revocation — the previous credential stays valid until it
-expires or an owner/admin revokes it. After a suspected compromise, revoke:
+Rotation is not revocation — it re-signs for the same key, so the previous
+credential stays valid until it expires or an owner/admin revokes it. After a
+suspected compromise, revoke (a new key, the old one rejected by NATS):
 
     stone nats-user update <username> --revoke`,
 	Args: cobra.NoArgs,

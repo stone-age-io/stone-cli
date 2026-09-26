@@ -79,7 +79,7 @@ var deliberatelyOmitted = map[string][]string{
 
 	// Secret material and server-derived state. The credential itself is
 	// readable by the identity that owns it, but nothing types it in.
-	"nats_users":   {"public_key", "private_key", "seed", "jwt", "creds_file", "active"},
+	"nats_users":   {"public_key", "private_key", "seed", "jwt", "creds_file"},
 	"nebula_hosts": {"certificate", "private_key", "ca_certificate", "config_yaml", "expires_at"},
 	"nebula_ca":    {"certificate", "private_key"},
 

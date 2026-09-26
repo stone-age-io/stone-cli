@@ -10,7 +10,38 @@ that period, and this file starts where the versioned releases do.
 
 ## [Unreleased]
 
-Nothing yet.
+**`revoke` never suspended anyone, and the help text said it did.** Under
+pb-nats v0.2.1 — what the platform pins — `revoke` is the "these credentials
+leaked" button: a new key pair, the old public key on the account's revocation
+list, and a working replacement on the same record. The identity stays active.
+Suspending is `active`, which this CLI refused to expose because pb-nats once
+ignored it.
+
+### Added
+
+- **`stone nats-user update <username> --active=false`** suspends an identity:
+  pb-nats revokes its key and issues nothing back. `--active=true` reactivates
+  it with a fresh credential. Owner/admin. `active` is still omitted from
+  `pull`, now for the trigger reason: pb-nats acts on the change, so a stale
+  value re-applied would suspend or un-suspend someone.
+
+### Fixed
+
+- **`--revoke` help** says it retires the current key and issues a replacement,
+  and points at `--active=false` for suspending. `--regenerate` says it re-signs
+  for the same key and does not retire a leaked file.
+- **`thing --active` help** names all four effects of decommissioning: blocked
+  sign-in, killed tokens, the linked NATS identity suspended, the linked Nebula
+  host blocklisted on config redeploy.
+- **`nats creds rotate` help** says rotation re-signs for the same key and is
+  refused while the identity is suspended, and no longer calls the `dashboard`
+  role by its old name.
+- **README:** the Quickstart's `pull --set-workspace .` pulled nothing (the flag
+  is a bool, so `.` became a collection filter) — it is now
+  `pull --workspace . --set-workspace`. Config paths are correct on macOS
+  (`~/Library/Application Support`) and Windows (`%LOCALAPPDATA%`). A key
+  lookup with no match does not list candidate ids. The advice for credentials
+  disclosed by a pre-0.4.0 `pull` now says `--revoke`, not `--regenerate`.
 
 ## [0.5.1] - 2026-09-22
 

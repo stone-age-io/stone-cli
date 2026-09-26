@@ -11,7 +11,7 @@ description: Use when the user wants to interact with the Stone Age IoT Platform
 
 Before invoking entity, NATS, or pull/apply commands, verify the CLI's per-user state. Walk this chain top-to-bottom and stop at the first step that's already satisfied.
 
-State lives under `$XDG_CONFIG_HOME/stone/` (e.g. `~/.config/stone/`). It is **per OS user**, not per repo. If a context already exists from an earlier session, reuse it — don't recreate.
+State lives under the OS config directory (`$XDG_CONFIG_HOME/stone/` if set, else `~/.config/stone/` on Linux, `~/Library/Application Support/stone/` on macOS, `%LOCALAPPDATA%\stone\` on Windows). It is **per OS user**, not per repo. If a context already exists from an earlier session, reuse it — don't recreate.
 
 1. **Context exists?**
    ```sh
@@ -43,7 +43,7 @@ State lives under `$XDG_CONFIG_HOME/stone/` (e.g. `~/.config/stone/`). It is **p
 
 4. **Workspace set?** (only for `pull`/`apply`)
    ```sh
-   stone pull --set-workspace .       # from an empty dir, ideally under git
+   stone pull --workspace . --set-workspace   # from an empty dir, ideally under git
    ```
 
 ## Output discipline

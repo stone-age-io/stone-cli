@@ -23,7 +23,7 @@ Per-user state lives under `$XDG_CONFIG_HOME/stone/`. Before doing real work, fo
 | 1. Context | `stone context ls` | `stone context create <name> --url <server> [--nats-url nats://...]` |
 | 2. Auth | `stone auth whoami` — read the `session:` line, not just the exit status | `stone auth login` (interactive; user must supply email/password) |
 | 3. Organization | `stone org current` | `stone org ls` then `stone org switch <code>` |
-| 4. Workspace (optional, for pull/apply) | check `context.yaml`'s `workspace:` | `stone pull --set-workspace .` |
+| 4. Workspace (optional, for pull/apply) | check `context.yaml`'s `workspace:` | `stone pull --workspace . --set-workspace` |
 
 Step 2 cannot be automated by an assistant — `auth login` prompts for credentials. Surface it to the user.
 
@@ -74,7 +74,7 @@ Verbs `ls / get / create / update / delete / edit` are derived from a single dec
 | `nebula-ca` | `nebula_ca` | yes | `name` | `ls / get / update / edit` |
 | `activity` | `activity` | yes | — (id only) | `ls / get` |
 
-`get`, `update`, `delete`, and `edit` take a positional `<id|lookup-key>`: either a 15-char PocketBase id or the entity's lookup key from the table above. Key lookups are exact-match and scoped to the current organization; zero or multiple matches fail, with candidate ids listed on ambiguity.
+`get`, `update`, `delete`, and `edit` take a positional `<id|lookup-key>`: either a 15-char PocketBase id or the entity's lookup key from the table above. Key lookups are exact-match and scoped to the current organization; no match fails with `no <entity> with <key> "<arg>"`, and multiple matches fail with the candidate ids listed.
 
 `get` (alias `show`) prints one record. Both `get` and `ls` accept `--fields a,b,c` for server-side projection (PocketBase's `fields` query param); on `ls` table output the requested fields become the columns.
 
@@ -207,7 +207,7 @@ stone js stream delete <name>
 stone nats sync-context                               # re-issue per-org creds after rotation
 ```
 
-`stone nats sync-context` is the rotation hook: re-run after `stone nats-user update <id> --regenerate` or any time the linked `nats_users` record's `creds_file` changes.
+`stone nats sync-context` is the rotation hook: re-run after `stone nats-user update <id> --regenerate` or `--revoke`, or any time the linked `nats_users` record's `creds_file` changes.
 
 ## Per-org NATS creds
 
@@ -215,7 +215,7 @@ When `nats_url` is set on the stone context, `stone org switch <org>`:
 
 1. Looks up the calling user's `memberships` record for `<org>`.
 2. Reads the linked `nats_users` record and its `creds_file`.
-3. Writes `~/.config/stone/creds/stone-<ctx>-<org>.creds` and `~/.config/nats/context/stone-<ctx>-<org>.json`.
+3. Writes `<config>/stone/creds/stone-<ctx>-<org>.creds` (`<config>` is `xdg.ConfigHome`: `~/.config` on Linux, `~/Library/Application Support` on macOS, `%LOCALAPPDATA%` on Windows) and `~/.config/nats/context/stone-<ctx>-<org>.json` (on every OS — where nats-cli reads it). `<org>` is the sanitized organization **name**.
 4. Updates the stone context's `nats_context` to that name.
 
 Pass `--set-nats-default` to also point the user's `nats` CLI default at it. Pass `--no-nats` to skip the sync. Pass `--verbose` to either `org switch` or `nats sync-context` to print user/membership/NATS user ids on stderr.
@@ -235,15 +235,17 @@ Do not substitute one of these for another. They differ in blast radius.
 
 | Intent | Command | Effect |
 |---|---|---|
-| Replace my own credential | `stone nats creds rotate` | New creds for the caller's own identity. Any role, incl. badge. No id — derived from the token. |
-| Replace someone else's | `stone nats-user update <username> --regenerate` | New creds for that identity. Owner/admin. |
-| Kill a credential | `stone nats-user update <username> --revoke` | NATS rejects it **immediately and permanently**. Owner/admin. |
-| Decommission the device | `stone thing update <code> --active=false` | Signs the device out, blocks re-login, **and** revokes its NATS credential. Owner/admin. |
+| Re-sign my own credential | `stone nats creds rotate` | Same key, fresh JWT for the caller's own identity. Any role, incl. dashboard. No id — derived from the token. Refused (403) while suspended. |
+| Re-sign someone else's | `stone nats-user update <username> --regenerate` | Same key, fresh JWT. Owner/admin. |
+| Replace a leaked credential | `stone nats-user update <username> --revoke` | New key pair; the old key goes on the account's revocation list, so NATS rejects every old copy **immediately and permanently**; a working replacement is issued and the identity **stays active**. Owner/admin. |
+| Suspend / reactivate an identity | `stone nats-user update <username> --active=false` / `--active=true` | Suspend revokes the key and issues nothing back; reactivate issues a fresh credential. Owner/admin. |
+| Decommission the device | `stone thing update <code> --active=false` | Signs the device out, blocks re-login, suspends its linked NATS identity **and** blocklists its linked Nebula host (on config redeploy). Owner/admin. |
 
 Rules a caller must not get wrong:
 
-- **Rotation is not revocation.** `--regenerate` leaves the previous credential valid until it expires. After a suspected compromise use `--revoke`.
-- **Never suggest `--active` on `nats-user`; the flag does not exist, deliberately.** `pb-nats` reads that field and consults it nowhere in JWT generation, so clearing it would recolour a status badge while the client kept publishing. It is readable as a status column only. The disconnect operation is `--revoke`.
+- **Rotation is not revocation.** `rotate` and `--regenerate` re-sign for the same key, so the previous credential stays valid until it expires. After a suspected compromise use `--revoke`.
+- **`--revoke` is not a suspend.** It hands back a working replacement and leaves the identity active — the leaked file dies, the identity does not. To take an identity out of service, use `--active=false` on the `nats-user` (or, for a device, on its `thing`).
+- **`active` on a `nats-user` is never written by `pull`.** pb-nats acts on its change, so a stale workspace value re-applied would suspend or un-suspend someone. A hand-written `active: false` still applies.
 - **`--active=false` on a thing is destructive to device operation, not a label.** Reactivating issues a *fresh* NATS credential; the previous `.creds` file stays revoked forever and must be replaced on the device. Confirm intent before running it.
 - `active` round-trips through `pull`/`apply`. A workspace file carrying `active: false` decommissions real hardware on the next apply.
 - Re-run `stone nats sync-context` after any operation that changes the caller's own credential.

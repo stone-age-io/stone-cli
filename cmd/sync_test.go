@@ -107,3 +107,35 @@ func split2(s string, sep byte) (string, string) {
 	}
 	return s, ""
 }
+
+// nats_users.active is a writable flag AND a field pull never writes, and both
+// halves are load-bearing. The flag is the only suspend (revoke hands back a
+// working replacement). The omission is because pb-nats acts on the EDGE: a
+// pulled `active: true` re-applied after an admin suspended the identity would
+// silently un-suspend it. Exposing the flag must not drag it into workspaces.
+func TestNatsUserActiveIsAFlagButNeverPulled(t *testing.T) {
+	var exposed bool
+	for _, spec := range entitySpecs {
+		if spec.Collection != "nats_users" {
+			continue
+		}
+		for _, f := range spec.Fields {
+			if f.Name == "active" && f.Type == FBool {
+				exposed = true
+			}
+		}
+	}
+	if !exposed {
+		t.Error("nats-user has no bool `active` flag: there is no way to suspend an identity from the CLI")
+	}
+
+	var omitted bool
+	for _, f := range workspaceOmit["nats_users"] {
+		if f == "active" {
+			omitted = true
+		}
+	}
+	if !omitted {
+		t.Error("workspaceOmit[nats_users] does not drop `active`: a pulled value re-applied would suspend or un-suspend an identity")
+	}
+}

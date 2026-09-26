@@ -192,7 +192,7 @@ var natsSyncContextCmd = &cobra.Command{
 	Long: `Re-fetches the current user's membership and nats_user record for the
 active organization, then writes a fresh .creds file and nats-cli context.
 
-Useful after rotating keys ('stone nats-user update <id> --regenerate')
+Useful after re-issuing ('stone nats-user update <id> --regenerate' or --revoke)
 or if the local files have drifted.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		c, err := ctx.Active(flagContext)

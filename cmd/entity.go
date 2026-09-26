@@ -155,10 +155,13 @@ var entitySpecs = []EntitySpec{
 			{Name: "floorplan_position", Type: FJSON, Help: "floorplan placement as JSON (e.g. {\"x\":12,\"y\":34})"},
 			{Name: "nats_user", Type: FID, Help: "nats_users id"},
 			{Name: "nebula_host", Type: FID, Help: "nebula_hosts id"},
-			// Not a status label -- setting false signs the device out, blocks
-			// it signing back in, and revokes its NATS credential. See
-			// deactivationWarning in creds.go. Owner/admin only.
-			{Name: "active", Type: FBool, Help: "in service; false DECOMMISSIONS: signs the device out and revokes its NATS credential (owner/admin)"},
+			// Not a status label -- setting false decommissions the device in four
+			// places at once (the platform's hooks/active_flag.go): the authRule
+			// blocks new sign-ins, a tokenKey refresh kills the tokens already
+			// issued, and the flag is mirrored onto the linked nats_users row
+			// (pb-nats suspends it) and nebula_hosts row (blocklisted across the
+			// CA once peer configs are redeployed). Owner/admin only.
+			{Name: "active", Type: FBool, Help: "in service; false DECOMMISSIONS: blocks sign-in, kills issued tokens, suspends the linked NATS identity, and blocklists the linked Nebula host on config redeploy (owner/admin)"},
 		},
 	},
 	{
@@ -334,26 +337,33 @@ var entitySpecs = []EntitySpec{
 			{Name: "account_id", Type: FID, Required: true, Help: "nats_accounts id"},
 			{Name: "role_id", Type: FID, Required: true, Help: "nats_roles id"},
 			{Name: "bearer_token", Type: FBool, Help: "issue as bearer-token user (no signing)"},
-			// `active` is deliberately NOT writable here.
+			// Three levers, and the names mislead -- this is pb-nats v0.2.1
+			// (internal/sync/manager.go, the OnRecordUpdate handler):
 			//
-			// pb-nats reads it into its model (internal/types/converters.go) and
-			// then consults it nowhere in JWT generation or sync -- clearing it
-			// leaves the signed credential valid and the client publishing. Only
-			// `revoke` disconnects anyone, by adding the public key to the
-			// account's revocation list and re-signing the account JWT
-			// (internal/sync/manager.go, revokeUser). pb-nats sets active=false
-			// itself as part of that, so it stays a readable status column.
+			//   active      the suspend switch, edge-triggered. true->false revokes
+			//               the public key and deliberately reissues nothing, so
+			//               the identity has no working credential. false->true
+			//               mints a JWT issued after the revocation cutoff, which
+			//               NATS accepts while every old copy stays dead.
+			//   revoke      the "these credentials leaked" button: a NEW key pair,
+			//               the OLD public key onto the account's revocation list,
+			//               and a working replacement on the same record. The
+			//               identity stays active -- this is not a suspend.
+			//   regenerate  re-signs a JWT for the SAME seed. A leaked file keeps
+			//               working; use revoke for that.
 			//
-			// The console removed its equivalent checkbox for the same reason. A
-			// flag that turns a badge red while the device keeps publishing is
-			// worse than no flag, because someone will trust it during an incident.
-			{Name: "revoke", Type: FBool, Help: "set true to REVOKE this credential: NATS rejects it immediately and permanently (use --regenerate to re-issue)"},
+			// active was once inert in pb-nats, which is why this spec used to
+			// refuse it. It is not pulled into a workspace (see workspaceOmit in
+			// sync.go): the edge is the action, so a stale value re-applied would
+			// suspend or un-suspend someone. Owner/admin only (nats_users.updateRule).
+			{Name: "active", Type: FBool, Help: "false SUSPENDS: revokes the key and issues nothing back; true reactivates with a fresh credential (owner/admin)"},
+			{Name: "revoke", Type: FBool, Help: "set true after a leak: retires the current key (NATS rejects every copy) and issues a working replacement; the identity stays active -- use --active=false to suspend"},
 			{Name: "jwt_expires_at", Type: FString, Help: `credential expiry, RFC 3339 (pass "" to clear = never expires)`},
 			{Name: "publish_permissions", Type: FJSON, Help: "per-user publish allow rules (JSON array of subjects; @file or - accepted)"},
 			{Name: "subscribe_permissions", Type: FJSON, Help: "per-user subscribe allow rules (JSON array of subjects)"},
 			{Name: "publish_deny_permissions", Type: FJSON, Help: "per-user publish deny rules (JSON array of subjects)"},
 			{Name: "subscribe_deny_permissions", Type: FJSON, Help: "per-user subscribe deny rules (JSON array of subjects)"},
-			{Name: "regenerate", Type: FBool, Help: "set true to trigger key rotation"},
+			{Name: "regenerate", Type: FBool, Help: "set true to re-sign the credential for the SAME key (does not retire a leaked file -- use --revoke)"},
 		},
 	},
 	{

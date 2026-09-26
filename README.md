@@ -54,7 +54,7 @@ tar xzf stone_${VERSION}_linux_amd64.tar.gz     # unpacks ./stone, LICENSE, READ
 
 # 6) Or use the declarative workflow
 mkdir my-workspace && cd my-workspace && git init
-../stone pull --set-workspace .          # writes <collection>/<code>.yaml
+../stone pull --workspace . --set-workspace   # writes <collection>/<code>.yaml
 # ...edit any file, commit, then:
 ../stone apply
 
@@ -68,8 +68,10 @@ mkdir my-workspace && cd my-workspace && git init
 
 ## Configuration
 
-Per-user config lives under `$XDG_CONFIG_HOME/stone/`
-(`~/.config/stone/` on macOS/Linux, `%APPDATA%\stone\` on Windows):
+Per-user config lives under the OS config directory — `$XDG_CONFIG_HOME/stone/`
+if that is set, otherwise `~/.config/stone/` on Linux,
+`~/Library/Application Support/stone/` on macOS and `%LOCALAPPDATA%\stone\` on
+Windows. (The nats-cli context files are the exception; see below.)
 
 ```
 stone/
@@ -152,8 +154,8 @@ There are two ways to wire it up:
    `--nats-context <name>` on a single command. JetStream domain (if any)
    is honored automatically.
 
-Use `stone nats sync-context` to re-issue the context after rotating keys
-(e.g., after `stone nats-user update <id> --regenerate`).
+Use `stone nats sync-context` to re-issue the context after a credential is
+re-issued (e.g., after `stone nats-user update <id> --regenerate` or `--revoke`).
 
 `stone context show` prints where it expects the context file and flags it as
 `MISSING` when it isn't there.
@@ -235,14 +237,22 @@ declarative file either: `apply` sends back every key in a file, so a pulled
 certificate is a stale value racing whatever the server has rotated to since,
 and a pulled trigger re-asserts an action that already happened.
 
-This is a **pull-side** filter. A hand-written `revoke: true` still applies —
+`nats_users.active` is omitted for the trigger reason rather than the secret one:
+pb-nats acts on its *change* — clearing it revokes the key, setting it re-mints —
+so a pulled value re-applied after an admin changed it would silently suspend or
+un-suspend that identity.
+
+This is a **pull-side** filter. A hand-written `revoke: true` or `active: false`
+still applies —
 nothing here removes a capability, it only stops the CLI putting secrets on disk
 unasked.
 
 > **If you pulled with an earlier version**, those values are already in your
 > workspace, and in its git history if you committed it. Treat them as
-> disclosed: re-mint the NATS credentials (`stone nats-user update <username>
-> --regenerate`, or `stone nats creds rotate` for your own) and re-issue the
+> disclosed: retire the NATS credentials with `stone nats-user update <username>
+> --revoke` (a new key pair, the old one on the account's revocation list —
+> `--regenerate` and `nats creds rotate` re-sign for the *same* key and leave the
+> leaked file working) and re-issue the
 > Nebula hosts (`stone nebula-host update <hostname> --renew`, which mints a
 > fresh keypair as well as a certificate), then delete any outstanding invites
 > whose token was written out. Scrubbing the files alone does not help once the
@@ -286,7 +296,8 @@ the entity's natural key: `code` (`thing`, `location`, `location-type`,
 `thing-type`, `organization`), `hostname` (`nebula-host`), `nats_username`
 (`nats-user`), `email` (`invite`), and `name` for everything else. `membership`
 is id-only. Key lookups are exact-match and scoped to the current organization;
-zero or multiple matches fail with the candidate ids listed.
+no match fails with `no <entity> with <key> "<arg>"`, and multiple matches fail
+with the candidate ids listed.
 
 `organization` is the one entity with two human keys, and accepts **either**:
 its `code` is tried first, then its `name`. Both are unique columns on the
@@ -440,34 +451,39 @@ issues one, `stone invite ls` shows what is outstanding, and
 
 ## Credential lifecycle
 
-Four distinct operations, easy to confuse. They are not interchangeable.
+Five distinct operations, easy to confuse. They are not interchangeable.
 
 | Goal | Command |
 | :--- | :--- |
-| Replace **my own** credential | `stone nats creds rotate` |
-| Replace **someone else's** credential | `stone nats-user update <username> --regenerate` |
-| **Kill** a credential (compromise) | `stone nats-user update <username> --revoke` |
+| Re-sign **my own** credential | `stone nats creds rotate` |
+| Re-sign **someone else's** credential | `stone nats-user update <username> --regenerate` |
+| **Replace a leaked** credential | `stone nats-user update <username> --revoke` |
+| **Suspend / reactivate** an identity | `stone nats-user update <username> --active=false` (`=true` to reactivate) |
 | **Decommission the device** | `stone thing update <code> --active=false` |
 
-**Rotation is not revocation.** Regenerating issues a new credential and leaves
-the old one working until it expires. After a suspected compromise, `--revoke`
-is the one that bites: it adds the public key to the account's revocation list
-and re-signs the account JWT, so NATS rejects the old credential immediately and
-permanently. Re-enable with `--regenerate`, which mints a JWT with a later issue
-time; the revoked one stays dead.
+**Rotation is not revocation.** `rotate` and `--regenerate` re-sign a JWT for the
+**same** key, so the old credential keeps working until it expires. After a
+suspected compromise, `--revoke` is the one that bites: it generates a new key
+pair, adds the old public key to the account's revocation list and re-signs the
+account JWT, so NATS rejects every copy of the old credential immediately and
+permanently — and it issues a **working replacement** in the same step. The
+identity stays active; deliver the new `.creds` to whoever should hold it.
 
-> **There is deliberately no `--active` flag on `nats-user`.** `pb-nats` reads
-> that field into its model and then consults it nowhere in JWT generation — so
-> clearing it turns a status badge red while the client keeps publishing. It
-> remains readable as a status column (pb-nats sets it itself when revoking),
-> but it is not a control. Use `--revoke`.
+**Suspending is `--active=false`.** pb-nats revokes the key and deliberately
+issues nothing back, so the identity has no working credential at all.
+`--active=true` reactivates it with a fresh JWT issued after the revocation
+cutoff; the old copies stay dead. While suspended, the identity's own
+`nats creds rotate` is refused (`403`) — a re-signed credential would otherwise
+lift the suspension. Owner/admin only. `active` is never written by `pull`, for
+the reason above.
 
-Deactivating the **device** is the broadest of the four and the one to reach for
+Deactivating the **device** is the broadest of the five and the one to reach for
 when hardware is retired or presumed lost. `--active=false` on a `thing`
 signs it out immediately (its existing session token is invalidated,
-not just blocked at next login), stops it signing back in, and revokes its NATS
-credential. Reactivating issues a *fresh* credential — the old `.creds` stays
-revoked permanently, so the device must be given the new one.
+not just blocked at next login), stops it signing back in, suspends its linked
+NATS identity, and blocklists its linked Nebula host across the CA once peer
+configs are redeployed. Reactivating issues a *fresh* NATS credential — the old
+`.creds` stays revoked permanently, so the device must be given the new one.
 
 Owner/admin only. Note this round-trips through `pull`/`apply`: a workspace file
 carrying `active: false` decommissions real hardware on the next apply.

@@ -73,12 +73,14 @@ intentional — do not "fix" them:
 - **Server-generated material** — `public_key`, `private_key`, `seed`, `jwt`,
   `creds_file`, `certificate`, `config_yaml`, `signing_*`, `revocations`,
   `expires_at`. Readable via `get`; writing them is meaningless.
-- **`nats-user.active`** — pb-nats reads it into its model
-  (`internal/types/converters.go`) and consults it **nowhere** in JWT
-  generation. Clearing it recolours a badge while the client keeps publishing;
-  only `revoke` disconnects anyone. It stays a `KeyColumn` (pb-nats sets it when
-  revoking) but must not become a writable flag. The console removed its
-  equivalent checkbox for the same reason.
+- **`nats-user.active` is a flag now, but never a pulled field.** This list
+  used to forbid the flag, because pb-nats once read `active` and consulted it
+  nowhere. Since pb-nats v0.2.1 it is the suspend switch: true→false revokes the
+  key and issues nothing back, false→true re-mints past the cutoff. `revoke` is
+  the leaked-credentials rotation that hands back a *working* replacement and
+  leaves the identity active, so it was never a substitute. `active` stays in
+  `workspaceOmit` because pb-nats acts on its change — a stale value re-applied
+  would suspend or un-suspend someone.
 - **`nebula-ca.rotate_keys`** — no such field exists, in `schema.json` or in
   pb-nebula. It was a flag once and did nothing: PocketBase silently drops
   writes to fields a collection doesn't have, so it reported success every time.

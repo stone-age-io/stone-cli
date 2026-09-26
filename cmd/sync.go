@@ -182,10 +182,15 @@ func runPull(cmd *cobra.Command, args []string) error {
 // JWT is a stale value racing whatever the server has rotated to since, and a
 // pulled trigger re-asserts an action that already happened.
 //
+// nats_users.active is omitted for the trigger reason, not the secret one:
+// pb-nats acts on its EDGE (true->false revokes the key with a permanent cutoff,
+// false->true re-mints), so a pulled value re-applied after an admin changed it
+// would silently suspend or un-suspend that identity.
+//
 // This is a pull-side filter only. A hand-written file that sets one of these
-// still applies -- `revoke: true` is a legitimate thing to write by hand -- so
-// nothing here removes a capability. It only stops the CLI from putting secrets
-// on disk unasked.
+// still applies -- `revoke: true` or `active: false` is a legitimate thing to
+// write by hand -- so nothing here removes a capability. It only stops the CLI
+// from putting secrets on disk unasked.
 var workspaceOmit = map[string][]string{
 	"nats_users":    {"creds_file", "jwt", "public_key", "active", "regenerate", "revoke"},
 	"nats_accounts": {"jwt", "public_key", "signing_public_key", "signing_keys", "active", "revocations", "rotate_keys", "add_signing_key", "remove_signing_key"},
