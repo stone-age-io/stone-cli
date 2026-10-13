@@ -2156,6 +2156,20 @@
         "type": "relation"
       },
       {
+        "autogeneratePattern": "",
+        "hidden": false,
+        "id": "text190089999",
+        "max": 0,
+        "min": 0,
+        "name": "path",
+        "pattern": "",
+        "presentable": false,
+        "primaryKey": false,
+        "required": false,
+        "system": false,
+        "type": "text"
+      },
+      {
         "hidden": false,
         "id": "geoPoint2551633526",
         "name": "coordinates",
@@ -2949,6 +2963,39 @@
         "required": false,
         "system": false,
         "type": "json"
+      },
+      {
+        "hidden": false,
+        "id": "bool1483994014",
+        "name": "allow_response",
+        "presentable": false,
+        "required": false,
+        "system": false,
+        "type": "bool"
+      },
+      {
+        "hidden": false,
+        "id": "number1537381278",
+        "max": null,
+        "min": -1,
+        "name": "allow_response_max",
+        "onlyInt": true,
+        "presentable": false,
+        "required": false,
+        "system": false,
+        "type": "number"
+      },
+      {
+        "hidden": false,
+        "id": "number1698314504",
+        "max": null,
+        "min": 0,
+        "name": "allow_response_ttl",
+        "onlyInt": true,
+        "presentable": false,
+        "required": false,
+        "system": false,
+        "type": "number"
       }
     ],
     "indexes": [],

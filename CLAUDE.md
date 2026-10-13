@@ -73,6 +73,10 @@ intentional — do not "fix" them:
 - **Server-generated material** — `public_key`, `private_key`, `seed`, `jwt`,
   `creds_file`, `certificate`, `config_yaml`, `signing_*`, `revocations`,
   `expires_at`. Readable via `get`; writing them is meaningless.
+- **`locations.path`** (platform ADR 0004) — the platform's hook is its only
+  writer and overwrites whatever a client sends. Not a flag, and not pulled
+  (`workspaceOmit`): moving an ancestor rewrites it, so a pulled copy goes
+  stale. Filter on it instead: `--filter 'path~"/BD-3/"'` is the whole subtree.
 - **`nats-user.active` is a flag now, but never a pulled field.** This list
   used to forbid the flag, because pb-nats once read `active` and consulted it
   nowhere. Since pb-nats v0.2.1 it is the suspend switch: true→false revokes the
@@ -195,7 +199,7 @@ declare — the dump predates the release. Unlike the pb-nats case noted in
 a database created earlier acquires them on the next start rather than never.
 They are listed in `libraryOwnedFields` so the drift guard can see them.
 
-**The floor is pb-nebula v0.3.0** (the platform pins v0.3.2). Against v0.2.0 the
+**The floor is pb-nebula v0.3.0** (the platform pins v0.3.3). Against v0.2.0 the
 two Nebula routes 404, and `--is-relay`, `--unsafe-networks`, `--unsafe-routes`,
 `--preferred-ranges`, `--mtu`, `--tun-device` and `--renew` all name fields the
 collection does not have — so the write is discarded and the command reports

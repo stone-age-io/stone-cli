@@ -74,8 +74,15 @@ var deliberatelyOmitted = map[string][]string{
 
 	// A file upload. The CLI has no multipart path, so floorplans, photos and
 	// logos are console-only; docs say as much.
+	//
+	// locations.path is the other kind: server-derived (ADR 0004). The
+	// platform's hook is its only writer and overwrites whatever a client
+	// sends, so a flag would report success and change nothing. It is the
+	// right thing to FILTER on -- everything under BD-3 is one substring:
+	//
+	//	stone location ls --filter 'path~"/BD-3/"'
 	"things":        {"photo"},
-	"locations":     {"floorplan", "photo"},
+	"locations":     {"floorplan", "photo", "path"},
 	"organizations": {"logo", "is_system_org", "is_operator_org"},
 
 	// Secret material and server-derived state. The credential itself is
@@ -101,34 +108,23 @@ var deliberatelyOmitted = map[string][]string{
 // they own, which the platform's schema.json does not declare -- so they are
 // absent from the vendored copy while being present on a live database.
 //
-// pb-nats creates nats_roles with these three (internal/collections/manager.go,
-// createRolesCollection) and reads them back when generating a user JWT
-// (internal/types/converters.go). The platform's schema.json is a dump that
-// predates them, and its import is additive, so it neither declares nor removes
-// them.
+// nats_roles' three allow_response fields used to be listed here. They left in
+// platform v0.10.0, which declares them in schema.json, while pb-nats v0.3.0
+// adds them to a database created before they existed (ensureRoleFields).
+// Until then a role's response permissions on such a database saved nothing.
 //
-// Worth knowing rather than just working around: createRolesCollection returns
-// early when the collection already exists, so a database created before those
-// fields were added never acquires them, and schema.json will not add them
-// either. This is the same shape as the system_account_id bug the platform fixed
-// in v0.2.0. Flagged upstream; the CLI's flags are correct against a current
-// database.
-//
-// pb-nebula v0.3.0 is the other case, and it behaves BETTER than the one above.
-// It added twelve fields across nebula_hosts and nebula_ca, and unlike pb-nats
-// it migrates them: InitializeCollections adds any declared field an existing
+// pb-nebula v0.3.0 added twelve fields across nebula_hosts and nebula_ca, and it
+// migrates them: InitializeCollections adds any declared field an existing
 // collection is missing (addMissingFields), so a database created before v0.3.0
 // acquires them on the next start rather than never. The platform's schema.json
 // still does not declare them -- it is a dump that predates the release, and
 // hand-copying a library's field definitions into it is the drift risk the
 // platform's own CLAUDE.md warns about -- so they are listed here instead.
 //
-// The floor is pb-nebula v0.3.0 (the platform pins v0.3.2). Against v0.2.0 every
+// The floor is pb-nebula v0.3.0 (the platform pins v0.3.3). Against v0.2.0 every
 // flag below is a silent no-op, which is the failure this whole file exists to
 // make loud.
 var libraryOwnedFields = map[string][]string{
-	"nats_roles": {"allow_response", "allow_response_max", "allow_response_ttl"},
-
 	// Exposed as flags: the relay role, the two halves of gateway routing,
 	// underlay path preference, the transport overrides, and the renew trigger.
 	"nebula_hosts": {

@@ -10,12 +10,24 @@ that period, and this file starts where the versioned releases do.
 
 ## [Unreleased]
 
-**`revoke` never suspended anyone, and the help text said it did.** Under
-pb-nats v0.2.1 — what the platform pins — `revoke` is the "these credentials
-leaked" button: a new key pair, the old public key on the account's revocation
-list, and a working replacement on the same record. The identity stays active.
-Suspending is `active`, which this CLI refused to expose because pb-nats once
-ignored it.
+**`revoke` never suspended anyone, and the help text said it did.** Since
+pb-nats v0.2.1, `revoke` is the "these credentials leaked" button: a new key
+pair, the old public key on the account's revocation list, and a working
+replacement on the same record. The identity stays active. Suspending is
+`active`, which this CLI refused to expose because pb-nats once ignored it.
+
+**Caught up with platform v0.11.0.** No command or flag changes for it, but
+several answers the platform gives do, and the help text now says so. A NATS role limit
+of 0 is refused, and an omitted one is -1. An empty permission list grants
+nothing. A deactivated Thing's identities cannot be brought back on their own.
+See **Upgrading** if you keep a pulled workspace.
+
+### Upgrading
+
+- **A workspace pulled before platform v0.11.0 may hold `0` limits** on NATS
+  roles created without them. `stone apply` now fails on those records with a
+  400 naming the field. Pull again (the platform upgrade turned them into -1),
+  or set them to `-1` by hand.
 
 ### Added
 
@@ -37,12 +49,38 @@ ignored it.
 - **A code lookup ignores case.** `stone thing get ca-9kd-4px` finds
   `CA-9KD-4PX`. The platform's code uniqueness ignores case too, so the folded
   match cannot find two records. Every other lookup key is still exact.
-- **The vendored `schema.json` is refreshed.** `things.photo` and
-  `locations.photo` are file fields and join `floorplan` and `logo` as
-  deliberately not flags.
+- **The vendored `schema.json` is refreshed**, to platform v0.11.0.
+  `things.photo` and `locations.photo` are file fields and join `floorplan` and
+  `logo` as deliberately not flags. `locations.path` (ADR 0004) is written only
+  by the server, so it is not a flag either: filter on it, as in
+  `stone location ls --filter 'path~"/BD-3/"'` for everything under `BD-3`.
+  The three `allow_response` fields on NATS roles are now declared by the
+  platform, so they leave the drift test's list of library-owned fields. Their
+  flags are unchanged.
+- **`pull` leaves out `locations.path`.** The server overwrites whatever is
+  sent, and moving an ancestor rewrites it, so a pulled copy only goes stale.
+- **Help text follows the platform's answers:**
+  - NATS role limits: `-1` or omitted means no per-user limit, and the
+    account's limit still applies. It is not "unlimited". `0` is refused.
+  - NATS account limits: `-1` is unlimited and `0` is refused, except on the
+    JetStream pair, where `0` turns JetStream off.
+  - NATS role permissions: an empty list grants nothing (pb-nats v0.3.0).
+    `[">"]` is everything, and a role that sends requests needs `_INBOX.>`.
+    A user's own permissions add to the role's.
+  - `nats-user --active=true`, `--regenerate` and `--revoke`, and
+    `nebula-host --active=true` and `--renew`, are refused while the linked
+    Thing is deactivated. `--renew` is refused on an inactive host too
+    (pb-nebula v0.3.3).
+  - `membership --nats-user`: owner and admin choose the link, and a member
+    can only keep or clear its own.
+  - `organization --active=false` suspends the organization's NATS account and
+    does nothing else.
 
 ### Fixed
 
+- **`--max-data` help** on `nats-role` and `nats-account` no longer promises a
+  limit: nats-server never enforces it. **`--allow-response-max` help** says
+  `0` means one response, which is what pb-nats signs, not "server default".
 - **`--revoke` help** says it retires the current key and issues a replacement,
   and points at `--active=false` for suspending. `--regenerate` says it re-signs
   for the same key and does not retire a leaked file.

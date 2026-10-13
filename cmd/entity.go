@@ -161,7 +161,7 @@ var entitySpecs = []EntitySpec{
 			// issued, and the flag is mirrored onto the linked nats_users row
 			// (pb-nats suspends it) and nebula_hosts row (blocklisted across the
 			// CA once peer configs are redeployed). Owner/admin only.
-			{Name: "active", Type: FBool, Help: "in service; false DECOMMISSIONS: blocks sign-in, kills issued tokens, suspends the linked NATS identity, and blocklists the linked Nebula host on config redeploy (owner/admin)"},
+			{Name: "active", Type: FBool, Help: "in service; false DECOMMISSIONS: blocks sign-in, kills issued tokens, suspends the linked NATS identity, and blocklists the linked Nebula host on config redeploy. Both identities stay down until this is true again (owner/admin)"},
 		},
 	},
 	{
@@ -281,7 +281,11 @@ var entitySpecs = []EntitySpec{
 			// visit.
 			{Name: "code", Type: FString, Help: "globally unique short code; derived from the name when omitted (IMMUTABLE once set)"},
 			{Name: "description", Type: FString, Help: "free-form description"},
-			{Name: "active", Type: FBool, Help: "whether the organization is active"},
+			// Means exactly one thing on the platform (hooks/org_active_flag.go):
+			// false withdraws the org's NATS account, so every device, agent and
+			// browser in the tenant disconnects. Reversible -- no credential is
+			// revoked -- and nothing else (console logins, Nebula) is touched.
+			{Name: "active", Type: FBool, Help: "false SUSPENDS the organization's NATS account: everything in it disconnects until true again; nothing else changes (operator-only)"},
 			{Name: "owner", Type: FID, Required: true, Help: "owning users id"},
 			// Flipping this provisions a stream export of the managed subject
 			// subtree from the org's NATS account into the operator hub account,
@@ -302,7 +306,10 @@ var entitySpecs = []EntitySpec{
 			{Name: "organization", Type: FID, Required: true, Help: "organizations id"},
 			{Name: "role", Type: FSelect, Values: []string{"owner", "admin", "member", "viewer", "dashboard"}, Required: true, Help: "membership role"},
 			{Name: "invited_by", Type: FID, Help: "users id of inviter"},
-			{Name: "nats_user", Type: FID, Help: "nats_users id linked to this membership"},
+			// The link decides whose creds_file the member can read, so only
+			// owner/admin may point it somewhere (platform v0.9.0 closed a member
+			// linking itself to a gateway's identity and reading the seed).
+			{Name: "nats_user", Type: FID, Help: "nats_users id linked to this membership (owner/admin choose it; a member can only keep or clear its own)"},
 		},
 	},
 	{
@@ -339,8 +346,8 @@ var entitySpecs = []EntitySpec{
 			{Name: "account_id", Type: FID, Required: true, Help: "nats_accounts id"},
 			{Name: "role_id", Type: FID, Required: true, Help: "nats_roles id"},
 			{Name: "bearer_token", Type: FBool, Help: "issue as bearer-token user (no signing)"},
-			// Three levers, and the names mislead -- this is pb-nats v0.2.1
-			// (internal/sync/manager.go, the OnRecordUpdate handler):
+			// Three levers, and the names mislead -- this is pb-nats v0.2.1 and
+			// later (internal/sync/manager.go, the OnRecordUpdate handler):
 			//
 			//   active      the suspend switch, edge-triggered. true->false revokes
 			//               the public key and deliberately reissues nothing, so
@@ -358,14 +365,21 @@ var entitySpecs = []EntitySpec{
 			// refuse it. It is not pulled into a workspace (see workspaceOmit in
 			// sync.go): the edge is the action, so a stale value re-applied would
 			// suspend or un-suspend someone. Owner/admin only (nats_users.updateRule).
-			{Name: "active", Type: FBool, Help: "false SUSPENDS: revokes the key and issues nothing back; true reactivates with a fresh credential (owner/admin)"},
-			{Name: "revoke", Type: FBool, Help: "set true after a leak: retires the current key (NATS rejects every copy) and issues a working replacement; the identity stays active -- use --active=false to suspend"},
+			//
+			// While the linked Thing is deactivated, the platform refuses
+			// active=true, revoke and regenerate on its identity (v0.10.0): each
+			// would hand the device a working credential while the Thing still
+			// says it is cut off. Reactivating the Thing is the way back.
+			{Name: "active", Type: FBool, Help: "false SUSPENDS: revokes the key and issues nothing back; true reactivates with a fresh credential (owner/admin; refused while its Thing is deactivated)"},
+			{Name: "revoke", Type: FBool, Help: "set true after a leak: retires the current key (NATS rejects every copy) and issues a working replacement; the identity stays active -- use --active=false to suspend (refused while its Thing is deactivated)"},
 			{Name: "jwt_expires_at", Type: FString, Help: `credential expiry, RFC 3339 (pass "" to clear = never expires)`},
-			{Name: "publish_permissions", Type: FJSON, Help: "per-user publish allow rules (JSON array of subjects; @file or - accepted)"},
-			{Name: "subscribe_permissions", Type: FJSON, Help: "per-user subscribe allow rules (JSON array of subjects)"},
+			// Unioned with the role's. A direction neither grants is signed as
+			// deny ">" since pb-nats v0.3.0, not as everything.
+			{Name: "publish_permissions", Type: FJSON, Help: "per-user publish allow rules, added to the role's (JSON array of subjects; @file or - accepted)"},
+			{Name: "subscribe_permissions", Type: FJSON, Help: "per-user subscribe allow rules, added to the role's (JSON array of subjects)"},
 			{Name: "publish_deny_permissions", Type: FJSON, Help: "per-user publish deny rules (JSON array of subjects)"},
 			{Name: "subscribe_deny_permissions", Type: FJSON, Help: "per-user subscribe deny rules (JSON array of subjects)"},
-			{Name: "regenerate", Type: FBool, Help: "set true to re-sign the credential for the SAME key (does not retire a leaked file -- use --revoke)"},
+			{Name: "regenerate", Type: FBool, Help: "set true to re-sign the credential for the SAME key (does not retire a leaked file -- use --revoke; refused while its Thing is deactivated)"},
 		},
 	},
 	{
@@ -379,14 +393,21 @@ var entitySpecs = []EntitySpec{
 			{Name: "name", Type: FString, Required: true, Help: "role name (unique per org)"},
 			{Name: "description", Type: FString, Help: "free-form description"},
 			{Name: "is_default", Type: FBool, Help: "use as default role for new NATS users"},
-			{Name: "max_subscriptions", Type: FInt, Help: "max concurrent subscriptions (-1 = unlimited)"},
-			{Name: "max_data", Type: FInt, Help: "max bytes in flight (-1 = unlimited)"},
-			{Name: "max_payload", Type: FInt, Help: "max message payload bytes (-1 = unlimited)"},
-			{Name: "allow_response", Type: FBool, Help: "allow publishing responses to reply subjects of received requests"},
-			{Name: "allow_response_max", Type: FInt, Help: "max allowed responses per request (0 = server default)"},
+			// Per-user limits. -1 is not "unlimited" on a role: nats-server takes
+			// the lower of the user and account limits, so -1 means the account
+			// limit applies. An omitted limit is stored as -1, and 0 is refused
+			// (platform v0.11.0): NATS reads 0 as zero, so a Subs-0 credential is
+			// disconnected as soon as it connects.
+			{Name: "max_subscriptions", Type: FInt, Help: "max concurrent subscriptions per user (-1 or omitted = no per-user limit, the account's applies; 0 is refused)"},
+			{Name: "max_data", Type: FInt, Help: "data limit per user; nats-server does not enforce it (-1 or omitted; 0 is refused)"},
+			{Name: "max_payload", Type: FInt, Help: "max message payload bytes per user (-1 or omitted = no per-user limit, the account's applies; 0 is refused)"},
+			{Name: "allow_response", Type: FBool, Help: "allow publishing responses to reply subjects of received requests, even with no publish permissions"},
+			{Name: "allow_response_max", Type: FInt, Help: "max responses per request (-1 = unlimited; 0 = 1)"},
 			{Name: "allow_response_ttl", Type: FInt, Help: "response permission expiry in seconds (0 = no expiration)"},
-			{Name: "publish_permissions", Type: FJSON, Help: "publish allow rules (JSON; @file or - accepted)"},
-			{Name: "subscribe_permissions", Type: FJSON, Help: "subscribe allow rules (JSON)"},
+			// pb-nats v0.3.0: a direction that neither the role nor the user grants
+			// is signed as deny ">" -- NOTHING. It used to be everything.
+			{Name: "publish_permissions", Type: FJSON, Help: `publish allow rules, JSON array of subjects (@file or - accepted); empty grants NOTHING -- use [">"] for everything`},
+			{Name: "subscribe_permissions", Type: FJSON, Help: `subscribe allow rules, JSON array of subjects; empty grants NOTHING -- a role that sends requests needs "_INBOX.>"`},
 			{Name: "publish_deny_permissions", Type: FJSON, Help: "publish deny rules (JSON)"},
 			{Name: "subscribe_deny_permissions", Type: FJSON, Help: "subscribe deny rules (JSON)"},
 		},
@@ -402,12 +423,15 @@ var entitySpecs = []EntitySpec{
 		Fields: []Field{
 			{Name: "name", Type: FString, Help: "account name"},
 			{Name: "description", Type: FString, Help: "free-form description"},
-			{Name: "max_connections", Type: FInt, Help: "max concurrent connections (operator-only)"},
-			{Name: "max_subscriptions", Type: FInt, Help: "max concurrent subscriptions (operator-only)"},
-			{Name: "max_data", Type: FInt, Help: "max data in flight (operator-only)"},
-			{Name: "max_payload", Type: FInt, Help: "max message payload bytes (operator-only)"},
-			{Name: "max_jetstream_disk_storage", Type: FInt, Help: "JS disk quota (operator-only)"},
-			{Name: "max_jetstream_memory_storage", Type: FInt, Help: "JS memory quota (operator-only)"},
+			// These go into the signed account JWT, where 0 means none, so the
+			// platform refuses 0 on the first four (v0.11.0). On the JetStream
+			// pair 0 is allowed and means JetStream off for the whole account.
+			{Name: "max_connections", Type: FInt, Help: "max concurrent connections (-1 = unlimited; 0 is refused; operator-only)"},
+			{Name: "max_subscriptions", Type: FInt, Help: "max concurrent subscriptions (-1 = unlimited; 0 is refused; operator-only)"},
+			{Name: "max_data", Type: FInt, Help: "data limit; nats-server does not enforce it (-1 = unlimited; 0 is refused; operator-only)"},
+			{Name: "max_payload", Type: FInt, Help: "max message payload bytes (-1 = unlimited; 0 is refused; operator-only)"},
+			{Name: "max_jetstream_disk_storage", Type: FInt, Help: "JS disk quota in bytes (-1 = unlimited; 0 = JetStream OFF for the account; operator-only)"},
+			{Name: "max_jetstream_memory_storage", Type: FInt, Help: "JS memory quota in bytes (-1 = unlimited; 0 = JetStream OFF for the account; operator-only)"},
 			// The key triggers (rotate_keys / add_signing_key / remove_signing_key)
 			// are NOT flags here. nats_accounts.updateRule is operator-only --
 			// the record mixes tenant-triggerable fields with the account limits
@@ -511,13 +535,18 @@ var entitySpecs = []EntitySpec{
 			{Name: "tun_device", Type: FString, Help: "tun interface name override; empty inherits the default"},
 
 			{Name: "validity_years", Type: FInt, Help: "certificate validity in years"},
-			{Name: "active", Type: FBool, Help: "whether the host is active; clearing it BLOCKLISTS the certificate across the CA"},
+			{Name: "active", Type: FBool, Help: "whether the host is active; clearing it BLOCKLISTS the certificate across the CA (true is refused while its Thing is deactivated)"},
 
 			// An action field, not state: pb-nebula re-issues on the false ->
 			// true edge and resets it in the same save, so it never reads back.
 			// Exposed because it is the fix for a host whose certificate no
 			// longer matches its network -- see `stone nebula cert-audit`.
-			{Name: "renew", Type: FBool, Help: "re-issue this host's certificate now (resets itself; redeploy the config afterwards)"},
+			//
+			// Refused on an inactive host (pb-nebula v0.3.3): the blocklist is
+			// built from the stored certificate, so re-issuing would un-revoke the
+			// one the device still holds. Refused too while the host's Thing is
+			// deactivated (platform v0.10.0).
+			{Name: "renew", Type: FBool, Help: "re-issue this host's certificate now (resets itself; redeploy the config afterwards); refused on an inactive host or while its Thing is deactivated"},
 		},
 	},
 	{

@@ -256,7 +256,13 @@ Rules a caller must not get wrong:
 - **`active` on a `nats-user` is never written by `pull`.** pb-nats acts on its change, so a stale workspace value re-applied would suspend or un-suspend someone. A hand-written `active: false` still applies.
 - **`--active=false` on a thing is destructive to device operation, not a label.** Reactivating issues a *fresh* NATS credential; the previous `.creds` file stays revoked forever and must be replaced on the device. Confirm intent before running it.
 - `active` round-trips through `pull`/`apply`. A workspace file carrying `active: false` decommissions real hardware on the next apply.
+- **A deactivated Thing's identities stay down until the Thing comes back.** The platform refuses `--active=true`, `--regenerate` and `--revoke` on its NATS identity, and `--active=true` and `--renew` on its Nebula host, with a 400 naming the Thing. Reactivate the Thing instead.
 - Re-run `stone nats sync-context` after any operation that changes the caller's own credential.
+
+NATS roles (platform v0.10.0 and v0.11.0):
+
+- **An empty permission list grants nothing.** A direction that neither the role nor the user allows is signed as a deny of everything. For full access write `[">"]`. A role that sends requests needs `_INBOX.>` on subscribe, unless it already has `>`.
+- **A limit of 0 is refused** on a role's `max_subscriptions`, `max_data` and `max_payload`, and on an account's four connection limits. Leave a role limit out, or pass `-1`: no per-user limit, and the account limit still applies. A workspace pulled before v0.11.0 can hold `0` limits; `apply` fails on them until they are re-pulled or set to `-1`.
 
 Org account signing keys (owner/admin, active org, no record id):
 
@@ -284,6 +290,7 @@ Rules a caller must not get wrong:
 - **`cert-audit` reports a failure that is invisible everywhere else.** pb-nebula signed host certificates at `/32` until v0.3.0; Nebula builds the host's overlay route from the certificate's network, so such a host reaches no peer while looking entirely healthy — active, in date, certificate present, config rendered, no errors. Editing a host's `overlay_ip` after issue has the same effect.
 - **Fix stale hosts one at a time**, with `stone nebula-host update <hostname> --renew`, redeploying each config as you go. Do not script a sweep: re-signing moves a certificate's fingerprint, and a fingerprint is what the revocation blocklist matches, so a bulk re-issue rewrites every peer config in the mesh.
 - **`--active=false` on a `nebula-host` is revocation**, and it now reaches every network under the same CA rather than just the host's own — Nebula's trust boundary is the CA. It takes effect when each *peer's* config is redeployed, not instantly. Deactivate to revoke; deleting the record leaves the certificate trusted until it expires, because a fingerprint that is not in the database cannot be blocklisted.
+- **`--renew` is refused on an inactive host** (pb-nebula v0.3.3). The blocklist is built from the stored certificate, so re-issuing would un-revoke the one the device still holds. Reactivating re-issues anyway.
 - **`--is-relay` needs `--public-host-port`.** Without it the host listens on an ephemeral port while every peer is handed its overlay IP as a usable path.
 - **`--unsafe-networks` and `--unsafe-routes` are two halves on two different hosts.** The first is signed into the *gateway's* certificate and authorizes it to route that subnet; the second goes on every host that wants to reach it, with `via` set to the gateway's overlay IP. Neither derives the other, and setting only one moves no traffic.
 

@@ -3,12 +3,12 @@ field table against it. This file is DATA, not the source of truth -- the source
 is the platform repo.
 
 source:   https://github.com/stone-age-io/platform/blob/main/schema.json
-platform release: v0.8.0
-platform: repo at d74eb35
-schema.json last changed in platform commit: 0f73b37, which added the tenant
-          activity feed (a per-organization record of who changed what, readable
-          by every role) and audit_logs.changed_fields
-copied:   2026-09-19
+platform release: v0.11.0
+platform: repo at d3b2408
+schema.json last changed in platform commit: 70abfea, which declared the three
+          allow_response fields on nats_roles (pb-nats v0.3.0).
+          locations.path (ADR 0004) arrived earlier, in platform v0.9.0.
+copied:   2026-10-12
 
 Refresh with:
   cp ../platform/schema.json cmd/testdata/schema.json

@@ -182,6 +182,12 @@ func runPull(cmd *cobra.Command, args []string) error {
 // JWT is a stale value racing whatever the server has rotated to since, and a
 // pulled trigger re-asserts an action that already happened.
 //
+// locations.path (platform ADR 0004) is server-generated in the plainest sense:
+// the platform's hook recomputes it on every save and overwrites whatever a
+// client sends, and moving an ancestor rewrites it for the whole subtree. A
+// pulled path is therefore harmless to apply and stale the first time anything
+// above it moves -- noise in a file people diff.
+//
 // nats_users.active is omitted for the trigger reason, not the secret one:
 // pb-nats acts on its EDGE (true->false revokes the key with a permanent cutoff,
 // false->true re-mints), so a pulled value re-applied after an admin changed it
@@ -197,6 +203,7 @@ var workspaceOmit = map[string][]string{
 	"nebula_hosts":  {"config_yaml", "certificate", "ca_certificate", "expires_at", "renew"},
 	"nebula_ca":     {"certificate", "expires_at", "rotate", "next_certificate", "previous_certificate", "rotated_at"},
 	"invites":       {"token", "resend_invite"},
+	"locations":     {"path"},
 }
 
 // stripWorkspaceFields removes the fields above in place, and reports whether it

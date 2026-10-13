@@ -247,7 +247,7 @@ stone nebula ca-rotate prepare|commit|finish   # roll the org's CA, one step at 
 
 - **Never run the three rotation steps back to back.** Nebula verification is mutual and hosts pull their config on their own schedule, so `commit` is only safe once *every* host has fetched what `prepare` published. Running them together is the single write the three-step design exists to avoid, and it splits the mesh until propagation catches up. `prepare` is reversible; `commit` re-signs every active host; `finish` drops the outgoing CA and is refused (by name) while any active host still holds one.
 - **`cert-audit` finds hosts that look completely healthy and reach nothing** — active, in date, certificate present, config rendered. pb-nebula signed certificates at `/32` until v0.3.0, and Nebula builds the host's overlay route from the certificate's network. Fix one at a time with `stone nebula-host update <hostname> --renew`, redeploying each config; never script a sweep, because re-signing moves a fingerprint and the revocation blocklist matches on fingerprints.
-- **`--active=false` on a `nebula-host` revokes it across the whole CA**, not just its own network, and takes effect when each *peer's* config is redeployed. Deactivate to revoke — deleting the record leaves the certificate trusted until expiry.
+- **`--active=false` on a `nebula-host` revokes it across the whole CA**, not just its own network, and takes effect when each *peer's* config is redeployed. Deactivate to revoke — deleting the record leaves the certificate trusted until expiry. `--renew` is refused on an inactive host; reactivating re-issues anyway.
 - **`--is-relay` requires `--public-host-port`.** `--unsafe-networks` (on the gateway, signed into its certificate) and `--unsafe-routes` (on each consumer, `via` the gateway's overlay IP) are two halves on two different hosts; setting one alone moves no traffic.
 
 ## Common failure modes and how to react
@@ -262,6 +262,9 @@ stone nebula ca-rotate prepare|commit|finish   # roll the org's CA, one step at 
 - **`multiple <plural> match <key> "..."`** — the natural key is ambiguous in this org. Use one of the 15-char ids listed in the error.
 - **`Invalid CA rotation: ...`** — the rotation steps were run out of order, or `finish` was attempted while a host named in the message still holds an outgoing-CA certificate. Read the message; it says which. There is no force flag.
 - **HTTP 404 updating `nebula-ca` or `nats-account`** — both are operator-only for every field. The tenant operations are `stone nebula ca-rotate` and `stone nats account-keys`.
+- **`This NATS identity belongs to Thing <name>, which is deactivated`** (or `This Nebula host ...`) — `--active=true`, `--regenerate`, `--revoke` and `--renew` are refused on a deactivated Thing's identities. Reactivate the Thing (`stone thing update <code> --active=true`); do not look for a way round it.
+- **HTTP 400 naming a limit and what 0 would do** — a NATS role or account limit of 0 is refused. Use `-1` (on a role: no per-user limit, the account's applies). On `stone apply`, the workspace was likely pulled before platform v0.11.0: re-pull, or set those limits to `-1`.
+- **A NATS user can connect but publish or subscribe to nothing** — since pb-nats v0.3.0 an empty permission list grants nothing. Check the role's lists: `[">"]` is everything, and a role that sends requests needs `_INBOX.>` on subscribe.
 
 ## Things not to do
 
