@@ -10,6 +10,13 @@ that period, and this file starts where the versioned releases do.
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-12
+
+**The platform makes the codes now.** `thing provision` no longer needs
+`--code`: leave it out and the platform generates one under the type's prefix,
+such as `CA-9KD-4PX`, which `provision` prints. Thing and Location types gain
+`--prefix`, and a code lookup ignores case.
+
 **`revoke` never suspended anyone, and the help text said it did.** Since
 pb-nats v0.2.1, `revoke` is the "these credentials leaked" button: a new key
 pair, the old public key on the account's revocation list, and a working
@@ -624,7 +631,8 @@ Summarising the state at first tag rather than the path to it:
 - `auth login` is interactive by design; credentials cannot be discovered by the
   CLI, which is also what stops an assistant authenticating as you.
 
-[Unreleased]: https://github.com/stone-age-io/stone-cli/compare/v0.5.1...HEAD
+[Unreleased]: https://github.com/stone-age-io/stone-cli/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/stone-age-io/stone-cli/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/stone-age-io/stone-cli/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/stone-age-io/stone-cli/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/stone-age-io/stone-cli/compare/v0.3.0...v0.4.0
