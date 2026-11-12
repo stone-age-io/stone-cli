@@ -494,7 +494,7 @@ var entitySpecs = []EntitySpec{
 		Fields: []Field{
 			{Name: "name", Type: FString, Required: true, Help: "network name"},
 			{Name: "description", Type: FString, Help: "free-form description"},
-			{Name: "cidr_range", Type: FString, Required: true, Help: "CIDR e.g. 192.168.100.0/24"},
+			{Name: "cidr_range", Type: FString, Required: true, Help: "CIDR e.g. 192.168.100.0/24 (fixed once created: the platform refuses a change)"},
 			{Name: "active", Type: FBool, Help: "whether the network is active"},
 			{Name: "ca_id", Type: FID, Required: true, Help: "nebula_ca id"},
 		},
@@ -540,7 +540,7 @@ var entitySpecs = []EntitySpec{
 			// An action field, not state: pb-nebula re-issues on the false ->
 			// true edge and resets it in the same save, so it never reads back.
 			// Exposed because it is the fix for a host whose certificate no
-			// longer matches its network -- see `stone nebula cert-audit`.
+			// longer matches its network (pb-nebula logs each one at start-up).
 			//
 			// Refused on an inactive host (pb-nebula v0.3.3): the blocklist is
 			// built from the stored certificate, so re-issuing would un-revoke the

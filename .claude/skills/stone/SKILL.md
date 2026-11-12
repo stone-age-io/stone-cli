@@ -238,15 +238,15 @@ stone nats sync-context        # re-issue per-org creds after key rotation
 
 ## Nebula overlay
 
-Records are ordinary entities. Two operations are routes, under `stone nebula`:
+Records are ordinary entities. CA rotation is a route, under `stone nebula`:
 
 ```sh
-stone nebula cert-audit                        # hosts whose certificate no longer matches their network
 stone nebula ca-rotate prepare|commit|finish   # roll the org's CA, one step at a time
 ```
 
 - **Never run the three rotation steps back to back.** Nebula verification is mutual and hosts pull their config on their own schedule, so `commit` is only safe once *every* host has fetched what `prepare` published. Running them together is the single write the three-step design exists to avoid, and it splits the mesh until propagation catches up. `prepare` is reversible; `commit` re-signs every active host; `finish` drops the outgoing CA and is refused (by name) while any active host still holds one.
-- **`cert-audit` finds hosts that look completely healthy and reach nothing** — active, in date, certificate present, config rendered. pb-nebula signed certificates at `/32` until v0.3.0, and Nebula builds the host's overlay route from the certificate's network. Fix one at a time with `stone nebula-host update <hostname> --renew`, redeploying each config; never script a sweep, because re-signing moves a fingerprint and the revocation blocklist matches on fingerprints.
+- **A network's `cidr_range` cannot change once it exists** (host certificates carry it); the platform refuses the update. Create a new network instead.
+- **Re-issue host certificates one at a time** with `stone nebula-host update <hostname> --renew`, redeploying each config; never script a sweep, because re-signing moves a fingerprint and the revocation blocklist matches on fingerprints.
 - **`--active=false` on a `nebula-host` revokes it across the whole CA**, not just its own network, and takes effect when each *peer's* config is redeployed. Deactivate to revoke — deleting the record leaves the certificate trusted until expiry. `--renew` is refused on an inactive host; reactivating re-issues anyway.
 - **`--is-relay` requires `--public-host-port`.** `--unsafe-networks` (on the gateway, signed into its certificate) and `--unsafe-routes` (on each consumer, `via` the gateway's overlay IP) are two halves on two different hosts; setting one alone moves no traffic.
 
@@ -273,5 +273,5 @@ stone nebula ca-rotate prepare|commit|finish   # roll the org's CA, one step at 
 - Don't run `stone apply` against a workspace you didn't `pull` from or hand-author with knowledge of the schema — apply will dutifully create records.
 - Don't expect `apply` to delete things. It only creates and updates.
 - Don't bypass `stone org switch` by editing `context.yaml` directly — you'll skip the per-org NATS creds sync.
-- Don't script a `--renew` sweep across every host `cert-audit` reports. Each re-issue moves a fingerprint and rewrites every peer's config; do them one at a time, redeploying as you go.
+- Don't script a `--renew` sweep across every host. Each re-issue moves a fingerprint and rewrites every peer's config; do them one at a time, redeploying as you go.
 - Don't look for a `--rotate` flag on `nebula-ca`. The field exists but the collection's update rule is operator-only, so a tenant PATCH 404s; `stone nebula ca-rotate` is the way in.

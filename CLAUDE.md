@@ -143,8 +143,7 @@ platform's non-collection endpoints. Five are wrapped:
 
 - `cmd/creds.go` — `POST /api/me/nats-creds/rotate` and
   `POST /api/org/nats-account/keys`.
-- `cmd/nebula.go` — `POST /api/org/nebula-ca/rotate` and
-  `GET /api/org/nebula/cert-audit`.
+- `cmd/nebula.go` — `POST /api/org/nebula-ca/rotate`.
 - `cmd/thing.go` — `POST /api/org/things`, surfaced as `stone thing provision`.
 - `cmd/invite.go` — `POST /api/org/invites/accept`, surfaced as
   `stone invite accept <token>`. It is a route because redeeming an invitation
@@ -153,19 +152,13 @@ platform's non-collection endpoints. Five are wrapped:
   caller does not have yet; the token is matched to the caller's own email
   address instead. Like the rest, it takes no record id.
 
-Three of the first four exist because an API rule cannot express a single-field
+The first three exist because an API rule cannot express a single-field
 allowlist: permitting one trigger field through an update rule means a deny-list
 over every other, which silently opens the moment someone adds a field. None of
 them takes a record id — the target is derived from the caller's identity or
 active organization — so don't add one.
 
-`cert-audit` is the exception and exists for a different reason: deciding whether
-a host certificate still matches its network means parsing a Nebula certificate,
-which no client can do. It answers in **ids**, and `cmd/nebula.go` resolves them
-to hostnames before printing — falling back to the bare id rather than dropping
-the row, because a host we cannot name is still a host that needs re-signing.
-
-`POST /api/org/things` is there for a third reason: **atomicity**. Minting a
+`POST /api/org/things` is there for a second reason: **atomicity**. Minting a
 Thing with its NATS identity and its Nebula host used to be three unguarded
 client calls, and a failure on the third orphaned a signed NATS credential and
 an allocated overlay IP. The route runs all three in one PocketBase transaction —

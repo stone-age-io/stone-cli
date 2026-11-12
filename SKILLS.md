@@ -275,10 +275,9 @@ stone nats account-keys rotate                   # EMERGENCY: invalidates every 
 ## Nebula overlay — two operations that are not record writes
 
 The records are ordinary entities (`nebula-ca`, `nebula-network`, `nebula-host`).
-These two live under `stone nebula` because a PocketBase rule cannot express them.
+CA rotation lives under `stone nebula` because a PocketBase rule cannot express it.
 
 ```sh
-stone nebula cert-audit                 # active hosts whose certificate no longer matches their network
 stone nebula ca-rotate prepare|commit|finish
 ```
 
@@ -287,8 +286,8 @@ Rules a caller must not get wrong:
 - **`ca-rotate` is three steps with a wait between them, and the wait is the feature.** Nebula verification is mutual — each peer checks the other against its *own* local CA pool, with no chain and no fallback — and hosts pull their config on their own schedule. `prepare` publishes trust in the incoming CA and moves no issuance, so it is fully reversible. Only once **every** host has fetched its config does `commit` become safe; it switches issuance and re-signs every active host, with both CAs trusted throughout. `finish` drops the outgoing CA. Never run the three back to back — that is the single write the three-step design exists to avoid, and it splits the mesh for as long as propagation takes.
 - **`finish` is interlocked and the refusal is informative.** It is refused while any active host still holds a certificate from the outgoing CA, and the error names the host. Deploy that host's config and retry; do not look for a force flag, there isn't one.
 - **A CA cannot be renewed, only rotated.** Check `stone nebula-ca ls` for the expiry and start months ahead, not weeks — the wait in the middle cannot be compressed.
-- **`cert-audit` reports a failure that is invisible everywhere else.** pb-nebula signed host certificates at `/32` until v0.3.0; Nebula builds the host's overlay route from the certificate's network, so such a host reaches no peer while looking entirely healthy — active, in date, certificate present, config rendered, no errors. Editing a host's `overlay_ip` after issue has the same effect.
-- **Fix stale hosts one at a time**, with `stone nebula-host update <hostname> --renew`, redeploying each config as you go. Do not script a sweep: re-signing moves a certificate's fingerprint, and a fingerprint is what the revocation blocklist matches, so a bulk re-issue rewrites every peer config in the mesh.
+- **A network's `cidr_range` cannot change once the network exists.** Host certificates carry it, so the platform refuses the update. Create a new network instead.
+- **Re-issue a host certificate one host at a time**, with `stone nebula-host update <hostname> --renew`, redeploying each config as you go. Do not script a sweep: re-signing moves a certificate's fingerprint, and a fingerprint is what the revocation blocklist matches, so a bulk re-issue rewrites every peer config in the mesh.
 - **`--active=false` on a `nebula-host` is revocation**, and it now reaches every network under the same CA rather than just the host's own — Nebula's trust boundary is the CA. It takes effect when each *peer's* config is redeployed, not instantly. Deactivate to revoke; deleting the record leaves the certificate trusted until it expires, because a fingerprint that is not in the database cannot be blocklisted.
 - **`--renew` is refused on an inactive host** (pb-nebula v0.3.3). The blocklist is built from the stored certificate, so re-issuing would un-revoke the one the device still holds. Reactivating re-issues anyway.
 - **`--is-relay` needs `--public-host-port`.** Without it the host listens on an ephemeral port while every peer is handed its overlay IP as a usable path.

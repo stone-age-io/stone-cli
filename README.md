@@ -572,11 +572,10 @@ All KV operations — bucket lifecycle and per-key data — live under `stone kv
 ## Nebula
 
 The records are ordinary entities — `stone nebula-ca`, `stone nebula-network`,
-`stone nebula-host`. Two operations are not record writes, and live under
+`stone nebula-host`. CA rotation is not a record write, and lives under
 `stone nebula`:
 
 ```sh
-stone nebula cert-audit                 # hosts whose certificate no longer matches their network
 stone nebula ca-rotate prepare          # publish trust in a new CA (reversible)
 stone nebula ca-rotate commit           # switch issuance, re-sign every active host
 stone nebula ca-rotate finish           # drop the outgoing CA
@@ -596,22 +595,8 @@ active host still holds a certificate signed by it — the refusal names the hos
 A CA cannot be renewed, only rotated, so start months ahead of the expiry in
 `stone nebula-ca ls`, not weeks.
 
-**`cert-audit` answers a question no client can.** pb-nebula signed host
-certificates at `/32` until v0.3.0. Nebula puts a certificate's network straight
-onto the tun device and installs a link route for it, so the mask in the
-certificate *is* the host's route to the overlay — a `/32` gives a host a route
-covering only itself. The certificate verifies, the config renders, the host
-starts, the handshake completes, and no packet crosses the mesh. Nothing errors,
-which is why you have to ask. Editing a host's `overlay_ip` after issue lands it
-here too.
-
-Nothing is re-signed automatically: re-signing moves a fingerprint, and a
-fingerprint is what the revocation blocklist matches, so a sweep would rewrite
-every peer config in the mesh. Fix one host at a time, redeploying as you go:
-
-```sh
-stone nebula-host update edge-west --renew
-```
+A network's `cidr_range` is fixed once the network exists: host certificates carry
+it, and the platform refuses a change. Create a new network instead.
 
 Requires a platform on **pb-nebula v0.3.0 or newer**. Against v0.2.0 the routes
 404 and the newer host flags — `--is-relay`, `--unsafe-networks`,

@@ -10,6 +10,14 @@ that period, and this file starts where the versioned releases do.
 
 ## [Unreleased]
 
+### Removed
+
+- **`stone nebula cert-audit`.** The platform removed
+  `GET /api/org/nebula/cert-audit`, which found certificates signed by
+  pb-nebula before v0.3.0. pb-nebula logs any active host whose certificate no
+  longer matches its network at start-up; fix it with
+  `stone nebula-host update <hostname> --renew`.
+
 ## [0.6.0] - 2026-10-12
 
 **The platform makes the codes now.** `thing provision` no longer needs
