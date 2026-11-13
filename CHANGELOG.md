@@ -10,6 +10,52 @@ that period, and this file starts where the versioned releases do.
 
 ## [Unreleased]
 
+**Caught up with platform v0.18.1.** The vendored schema the drift tests read
+was from platform v0.11.0, and the tests passed on it. It is now generated from
+a live server, so it also shows the fields pb-nats and pb-nebula add at boot.
+Four fields the platform added since v0.11.0 had no flag. See **Upgrading** if
+you keep a pulled workspace.
+
+### Upgrading
+
+- **Delete `organizations/`, `nats_accounts/` and `nebula_ca/` from a workspace
+  pulled as an owner or admin**, and any `memberships/` file for another
+  organization. `pull` no longer writes them, but `apply` still sends the files
+  that are there, and each one fails with a 404.
+
+### Added
+
+- **`nats-export --allowed-importers`**: the account public keys allowed to
+  import a `token_req` export. pb-nats signs the activation token for each
+  listed account that imports it. Removing a key revokes it. Needs pb-nats
+  v0.3.3 or newer.
+- **`nebula-host --additional-host-ports`** (more addresses peers dial, beyond
+  `--public-host-port`), **`--advertise-addrs`** (more addresses this host
+  reports, for example behind 1:1 NAT) and **`--local-allow-list`** (which of
+  its own addresses this host reports, in Nebula's format). All three are JSON,
+  and need pb-nebula v0.4.0 or newer.
+- **`scripts/vendor-schema.sh [platform-checkout]`** regenerates
+  `cmd/testdata/schema.json`. It builds the platform, seeds a throwaway
+  database, starts it and lists every collection over the API. It replaces the
+  `cp ../platform/schema.json` refresh.
+
+### Changed
+
+- **`pull` writes only what the caller can apply back.** `organizations`,
+  `nats_accounts` and `nebula_ca` are pulled only for a Platform Operator (or a
+  superuser), because their update rules admit no other role. Memberships are
+  filtered to the current organization: the platform also lists the caller's
+  own memberships in other organizations. Before, an owner or admin who ran
+  `pull` and then `apply` got a 404 for every one of those records. `pull`
+  says what it skipped.
+- **`pull` leaves out `nats_account_exports.revocations`.** pb-nats writes it
+  when a key leaves `allowed_importers`. A stale copy applied back would drop
+  a later cutoff, and so lift a revocation.
+- **The drift tests no longer keep a list of library-owned fields.** The
+  generated schema has them. The tests now also fail on a `routeOnlyFields`
+  entry for a field the platform no longer has, and when `operatorOnlyUpdate`
+  (in `cmd/sync.go`) disagrees with the update rules in the schema.
+
 ## [0.6.1] - 2026-11-12
 
 Follows platform v0.17.0, which removed the route `stone nebula cert-audit`

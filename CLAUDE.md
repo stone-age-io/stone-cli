@@ -12,9 +12,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 go build -o stone           # local binary (entry point: main.go -> cmd.Execute())
 go build ./...              # build everything
 go vet ./...
+go test ./...               # unit tests in cmd/ and internal/, including the schema drift guard
 ```
 
-There is no test suite in the tree. The `version` in `cmd/root.go` is wired for `-ldflags` injection.
+The `version` in `cmd/root.go` is wired for `-ldflags` injection.
 
 ## Architecture
 
@@ -119,13 +120,23 @@ the device could never authenticate. So `thing create --active=false` is
 silently overridden server-side; deactivation is an update. pb-nebula forces the
 same thing on `nebula_hosts` create.
 
-To re-check drift, refresh the vendored copy and run the tests — the platform
+To re-check drift, regenerate the vendored copy and run the tests — the platform
 repo is normally at `../platform`:
 
 ```sh
-cp ../platform/schema.json cmd/testdata/schema.json
+scripts/vendor-schema.sh [platform-checkout]   # ~40 s; needs go, node, curl
 go test ./...
 ```
+
+The script builds the platform, seeds a throwaway database with `init`, starts
+`serve` on a free local port, lists every collection as the superuser, drops
+PocketBase's `system` collections, and writes `cmd/testdata/schema.json` plus
+`schema-source.txt` (whose `platform release:` line `scripts/release-notes.sh`
+reads). It replaced a hand `cp` of the platform's `schema.json`, which had two
+faults: the copy sat at platform v0.11 while the platform shipped v0.18 and every
+test passed on it, and `schema.json` never declares the fields pb-nats and
+pb-nebula add to their own collections at boot. Run it on a clean checkout of a
+platform tag; uncommitted platform work shows up as `-dirty`.
 
 `cmd/schema_drift_test.go` checks three directions per spec (a flag for a field
 the platform lacks, a platform field neither exposed nor explained, and a stale
@@ -184,21 +195,24 @@ first requires a `things` session (an agent on the box asks for it, not an
 operator at a terminal), and the second answers a question the browser has and
 this CLI does not.
 
-### pb-nebula v0.3 and the library-owned fields
+### Library-owned fields
 
-pb-nebula v0.3.0 added twelve fields the platform's `schema.json` does not
-declare — the dump predates the release. Unlike the pb-nats case noted in
-`cmd/schema_drift_test.go`, pb-nebula **migrates** them (`addMissingFields`), so
-a database created earlier acquires them on the next start rather than never.
-They are listed in `libraryOwnedFields` so the drift guard can see them.
+pb-nebula v0.3.0 added twelve fields to `nebula_hosts` and `nebula_ca` that the
+platform's `schema.json` does not declare; pb-nats adds some to its own
+collections too. pb-nebula **migrates** them (`addMissingFields`), so a database
+created earlier acquires them on the next start. There used to be a hand-kept
+`libraryOwnedFields` list so the drift guard could see them; it is gone,
+because the vendored schema now comes from a live server and has them.
 
 **The floor is pb-nebula v0.3.0** (the platform pins v0.3.3). Against v0.2.0 the
 two Nebula routes 404, and `--is-relay`, `--unsafe-networks`, `--unsafe-routes`,
 `--preferred-ranges`, `--mtu`, `--tun-device` and `--renew` all name fields the
 collection does not have — so the write is discarded and the command reports
-success. That is precisely the failure the drift guard exists to make loud, and
-it cannot catch this one, because the vendored schema is a copy of a file that
-never declared them either.
+success. The drift guard cannot catch that: it checks the CLI against the
+platform it was vendored from, not against the server a user points it at.
+`--additional-host-ports`, `--advertise-addrs` and `--local-allow-list` need
+pb-nebula v0.4.0 (platform v0.18.1 pins v0.5.0); `nats-export
+--allowed-importers` needs pb-nats v0.3.3.
 
 ### Relation display (`cmd/relations.go`)
 
@@ -237,7 +251,7 @@ break a command that would otherwise work, and there is no fallback path.
 
 ### Pull / apply (GitOps)
 `cmd/sync.go`:
-- `stone pull` writes one YAML file per record into `<workspace>/<collection>/<key>.yaml`, where `<key>` is the spec's `LookupKey` value, falling back to `name`, then id. Filename collisions get a `-<id>` suffix; records are pulled sorted by id so the suffix lands on the same record across pulls. Filenames are cosmetic — apply identifies records solely by the `id` field inside the file. Org-scoped collections are filtered by `current_organization`. Server-only fields (`collectionId`, `collectionName`, `created`, `updated`, `expand`) are stripped on read (see `pb.ServerOnlyFields` / `pb.Strip`).
+- `stone pull` writes one YAML file per record into `<workspace>/<collection>/<key>.yaml`, where `<key>` is the spec's `LookupKey` value, falling back to `name`, then id. Filename collisions get a `-<id>` suffix; records are pulled sorted by id so the suffix lands on the same record across pulls. Filenames are cosmetic — apply identifies records solely by the `id` field inside the file. Org-scoped collections are filtered by `current_organization`, and so is `memberships` (`pullScopedToOrg`): it is not `OrgScoped`, but its listRule also returns the caller's own memberships in other organizations, which they cannot update from this one. **`pull` writes only what the caller can apply back**: `organizations`, `nats_accounts` and `nebula_ca` (`operatorOnlyUpdate`) have operator-only update rules, so pull skips them unless `isOperator` says the caller has `is_operator` on its own users record or is a superuser. `TestOperatorOnlyUpdateMatchesTheSchema` checks that map against the vendored update rules. Server-only fields (`collectionId`, `collectionName`, `created`, `updated`, `expand`) are stripped on read (see `pb.ServerOnlyFields` / `pb.Strip`).
 - `stone apply` walks the workspace, infers each record's collection from its parent directory, batches up to **50 ops per request** (`batchSize` constant), and POSTs through PocketBase's transactional `/api/batch`. Records with `id` are PATCHed; records without are POSTed and the server-assigned id is written back into the file. Apply is idempotent. It deliberately does **not** delete records absent from the workspace.
 - The list of collections pull/apply knows about is derived from `entitySpecs`, filtered by `EntitySpec.syncable()` — a spec offering neither `create` nor `update` is skipped by both, because every record it could write already has an id, so apply would PATCH it and a collection with no update rule answers 404. Adding a writable `EntitySpec` automatically extends both pull and apply; adding a read-only one (`activity`) deliberately extends neither. `OrgScoped` is reused to inject `organization` on create.
 - **`pull` does not write credentials or server-generated material** — see `workspaceOmit` in `cmd/sync.go`. PocketBase already withholds the fields the schema marks hidden (every `private_key`, every `seed`), but it returns plenty to an owner or admin that has no business in a git repo: `nats_users.creds_file` **is** the credential (a user JWT and an nkey seed, the same bytes `natsx` writes under `0600`), `nebula_hosts.config_yaml` carries the host's Nebula private key inline, and `invites.token` is a bearer credential that redeems into a membership. Alongside them go the server-generated certificates, JWTs and action triggers, which are a correctness problem rather than a disclosure one: apply sends back every key in a file, so a pulled certificate is a stale value racing whatever the server has rotated to since. `pull` prints what it omitted, per collection. It is a **pull-side** filter only — a hand-written `revoke: true` still applies, so nothing here removes a capability. When adding a field to a spec, ask whether it belongs on this list too; `cmd/sync_test.go` pins the four whose absence is a credential leak.

@@ -473,6 +473,11 @@ var entitySpecs = []EntitySpec{
 			{Name: "subject", Type: FString, Required: true, Help: "subject to expose"},
 			{Name: "type", Type: FSelect, Values: []string{"stream", "service"}, Required: true, Help: "export kind"},
 			{Name: "token_req", Type: FBool, Help: "require activation tokens from importing accounts"},
+			// The grant for a token_req export (pb-nats): the platform signs the
+			// activation token for each listed account that imports it, so nobody
+			// pastes one. Removing a key revokes it; pb-nats records the cutoff in
+			// `revocations`, which is server-derived and not a flag.
+			{Name: "allowed_importers", Type: FJSON, Help: `account public keys allowed to import a token_req export, e.g. ["ABC..."]; removing one revokes it`},
 			{Name: "response_type", Type: FSelect, Values: []string{"Singleton", "Stream", "Chunked"}, Help: "response type (service exports only)"},
 			{Name: "response_threshold", Type: FInt, Help: "response threshold in ns (service exports only)"},
 			{Name: "account_token_position", Type: FInt, Help: "wildcard position bound by the activation token"},
@@ -516,6 +521,9 @@ var entitySpecs = []EntitySpec{
 			{Name: "is_lighthouse", Type: FBool, Help: "whether this host is a lighthouse"},
 			{Name: "is_relay", Type: FBool, Help: "forward traffic for peers that cannot reach each other directly (needs --public-host-port)"},
 			{Name: "public_host_port", Type: FString, Help: "public address:port; required for a lighthouse AND for a relay"},
+			// The rest of this host's static_host_map entry, which every peer
+			// carries: a dual-stack lighthouse, or one on two internet paths.
+			{Name: "additional_host_ports", Type: FJSON, Help: `further host:port addresses peers dial, beyond --public-host-port, e.g. ["[2001:db8::1]:4242"] (max 8; port 0 refused)`},
 			{Name: "firewall_outbound", Type: FJSON, Help: "outbound firewall rules (JSON)"},
 			{Name: "firewall_inbound", Type: FJSON, Help: "inbound firewall rules (JSON)"},
 
@@ -530,6 +538,13 @@ var entitySpecs = []EntitySpec{
 			// Underlay, not overlay -- which is why IPv6 is accepted here and
 			// nowhere else in the platform.
 			{Name: "preferred_ranges", Type: FJSON, Help: `underlay prefixes to favour when a peer has several addresses, e.g. ["192.168.1.0/24"]`},
+
+			// What this host REPORTS about itself to the lighthouses, for any
+			// host rather than only a lighthouse. pb-nebula validates both
+			// strictly: Nebula refuses to start on an entry it cannot parse or
+			// resolve, so a typo here costs the host its next restart.
+			{Name: "advertise_addrs", Type: FJSON, Help: `extra host:port addresses this host reports, e.g. behind 1:1 NAT ["203.0.113.5:0"] (port 0 = the listening port; max 8)`},
+			{Name: "local_allow_list", Type: FJSON, Help: `which own addresses this host reports, in Nebula's format, e.g. {"interfaces":{"docker.*":false},"10.0.0.0/8":true}`},
 
 			{Name: "mtu", Type: FInt, Help: "MTU override; 0 inherits the default"},
 			{Name: "tun_device", Type: FString, Help: "tun interface name override; empty inherits the default"},

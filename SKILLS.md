@@ -183,6 +183,7 @@ Properties:
 - **Server-managed fields ignored.** `collectionId`, `collectionName`, `created`, `updated` are stripped on pull and ignored on apply.
 - **Credentials are never written out.** `pull` drops `nats_users.creds_file` (the credential itself), `nebula_hosts.config_yaml` (the host private key, inline), `invites.token`, and the server-generated certificates, JWTs and action triggers beside them, printing what it left out per collection. Pull-side only: a hand-written `revoke: true` still applies. See `workspaceOmit` in `cmd/sync.go`.
 - **Read-only entities are excluded.** `activity` is append-only on the platform, so it is neither pulled nor applied.
+- **Only what the caller can apply back.** `organizations`, `nats_accounts` and `nebula_ca` have operator-only update rules, so `pull` skips them (and says so on stderr) unless the user has `is_operator` or is a superuser. Memberships are filtered to the current organization, because the platform also lists the user's own memberships in other organizations. A workspace pulled as owner/admin by an older CLI may still hold those files; `apply` fails on each with a 404 until they are deleted.
 
 Put the workspace under git for diff, history, and review.
 
@@ -216,6 +217,8 @@ stone nats sync-context                               # re-issue per-org creds a
 ```
 
 `stone nats sync-context` is the rotation hook: re-run after `stone nats-user update <id> --regenerate` or `--revoke`, or any time the linked `nats_users` record's `creds_file` changes.
+
+To share a `token_req` export with other accounts, list their public keys: `stone nats-export update <name> --allowed-importers '["A..."]'`. pb-nats signs the activation token for each listed account that imports it, so nobody pastes one. Removing a key revokes it; pb-nats records the cutoff in `revocations`, which `pull` does not write. Needs pb-nats v0.3.3+.
 
 ## Per-org NATS creds
 
@@ -292,6 +295,7 @@ Rules a caller must not get wrong:
 - **`--renew` is refused on an inactive host** (pb-nebula v0.3.3). The blocklist is built from the stored certificate, so re-issuing would un-revoke the one the device still holds. Reactivating re-issues anyway.
 - **`--is-relay` needs `--public-host-port`.** Without it the host listens on an ephemeral port while every peer is handed its overlay IP as a usable path.
 - **`--unsafe-networks` and `--unsafe-routes` are two halves on two different hosts.** The first is signed into the *gateway's* certificate and authorizes it to route that subnet; the second goes on every host that wants to reach it, with `via` set to the gateway's overlay IP. Neither derives the other, and setting only one moves no traffic.
+- **Three JSON flags describe a host's underlay addresses** (pb-nebula v0.4.0+). `--additional-host-ports '["[2001:db8::1]:4242"]'` adds addresses peers dial beyond `--public-host-port` (max 8, port 0 refused). `--advertise-addrs '["203.0.113.5:0"]'` adds addresses this host reports, for example behind 1:1 NAT (port 0 = its listening port). `--local-allow-list '{"interfaces":{"docker.*":false}}'` filters which of its own addresses it reports, in Nebula's format. Nebula refuses to start on an `advertise_addrs` entry it cannot parse or resolve, so check the value before you redeploy an unattended host.
 
 Requires a platform on **pb-nebula v0.3.0+**. Against v0.2.0 the routes 404 and the newer host flags name fields the collection lacks, so the write is discarded and the command still reports success.
 

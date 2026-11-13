@@ -209,7 +209,16 @@ one you expected, your `nats_context` points at the wrong context. Otherwise:
 named by the record's natural key — the same keys CRUD lookup uses (`code`,
 `name`, `hostname`, …), falling back to `name`, then id. Filename collisions get a `-<id>` suffix. Filenames
 are cosmetic: `apply` identifies records solely by the `id` field inside each
-file. Org-scoped collections are filtered to the current organization.
+file. Org-scoped collections are filtered to the current organization, and so
+are memberships (the platform also lists your own memberships in other
+organizations).
+
+`pull` writes only what you can apply back. `organizations`, `nats_accounts`
+and `nebula_ca` have operator-only update rules, so `pull` skips them unless
+you are a Platform Operator (`is_operator` on your user) or a superuser, and
+says so on stderr. A workspace pulled as an owner or admin with an earlier
+version may hold those directories: delete them, or each file fails on
+`apply` with a 404.
 
 `stone apply` walks the workspace (or the paths you pass), groups records into
 batches of up to 50, and POSTs them through PocketBase's transactional `/api/batch`
@@ -231,6 +240,7 @@ the way to disk:
 | `nats_accounts` | `jwt`, `public_key`, `signing_public_key`, `signing_keys`, `active`, `revocations`, and the three key triggers | account key material and operator-only triggers |
 | `invites` | `token`, `resend_invite` | the token is a bearer credential that redeems into a membership |
 | `locations` | `path` | written only by the server, which overwrites a sent value; moving an ancestor rewrites it |
+| `nats_account_exports` | `revocations` | written by pb-nats when a key leaves `allowed_importers`; a stale copy applied back would lift a revocation |
 
 `pull` prints what it left out, per collection. The rest of each list is
 server-generated state and action triggers, which do not belong in a
@@ -602,7 +612,9 @@ Requires a platform on **pb-nebula v0.3.0 or newer**. Against v0.2.0 the routes
 404 and the newer host flags — `--is-relay`, `--unsafe-networks`,
 `--unsafe-routes`, `--preferred-ranges`, `--mtu`, `--tun-device`, `--renew` —
 name fields the collection does not have, so PocketBase discards the write and
-the command reports success.
+the command reports success. `--additional-host-ports`, `--advertise-addrs` and
+`--local-allow-list` fail the same way before pb-nebula v0.4.0 (platform v0.18.1
+pins v0.5.0), and `nats-export --allowed-importers` before pb-nats v0.3.3.
 
 ## Limitations
 
@@ -648,7 +660,9 @@ Module path: `github.com/stone-age-io/stone-cli`. Go 1.25+.
 
 The field table in `cmd/entity.go` is hand-maintained, not generated — so the
 tests compare it against a **vendored copy** of the platform's collection
-schema at `cmd/testdata/schema.json`. They fail in both directions: a flag for a
+schema at `cmd/testdata/schema.json`. The copy is generated from a live server,
+not copied from the platform's `schema.json`, so it includes the fields pb-nats
+and pb-nebula add to their own collections at boot. They fail in both directions: a flag for a
 field the platform does not have (PocketBase discards that write and the command
 reports success), and a platform field the CLI neither exposes nor records a
 reason for.
@@ -660,18 +674,25 @@ test looks at, and the feature is missing rather than broken. A new collection
 now fails until someone writes a spec for it or adds it to `notAnEntity` with
 the reason it has none.
 
-When the platform's schema changes, refresh the copy and run the tests:
+When the platform's schema changes, regenerate the copy and run the tests:
 
 ```sh
-cp ../platform/schema.json cmd/testdata/schema.json
+scripts/vendor-schema.sh [platform-checkout]   # default ../platform; ~40 s
 go test ./...
 ```
+
+The script builds the platform, seeds a throwaway database with `init`, starts
+`serve` on a free local port, lists every collection as the superuser, and
+writes `cmd/testdata/schema.json` and `cmd/testdata/schema-source.txt`. It
+needs `go`, `node` and `curl`, and does not need NATS. Point it at a clean
+checkout of a platform tag.
 
 A failure then tells you exactly what moved. Add the field to the spec, or add it
 to `deliberatelyOmitted` in `cmd/schema_drift_test.go` with the reason — "why is
 there no flag for this" is the question that list exists to answer.
 `cmd/testdata/schema-source.txt` records which platform version the copy came
-from, on a `platform release:` line the release notes read back.
+from, on a `platform release:` line the release notes read back. The script
+writes it from `git describe`.
 
 ### Cutting a release
 

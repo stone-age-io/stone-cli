@@ -18,23 +18,30 @@ import (
 //
 // So this test compares the table against a vendored copy of the platform's
 // schema. Vendored, not fetched: the drift being guarded against is exactly the
-// kind you want to see in a diff and approve, and a stale copy fails loudly the
-// same way a missing one would. Refresh it with
+// kind you want to see in a diff and approve. Refresh it with
 //
-//	cp ../platform/schema.json cmd/testdata/schema.json
+//	scripts/vendor-schema.sh [platform-checkout]
 //
 // and read cmd/testdata/schema-source.txt for which platform version it came
 // from.
+//
+// The script asks a live server rather than copying the platform's schema.json,
+// for two reasons. A hand copy went stale: this file once held platform v0.11
+// while the platform shipped v0.18, and every test here passed on the old data.
+// And schema.json does not declare the fields pb-nats and pb-nebula add to their
+// own collections at boot, so a copy of it could never show them: a flag for one
+// had to be taken on trust, and a field the CLI lacked went unseen.
 
 const (
 	vendoredSchema = "testdata/schema.json"
-	refreshHint    = "if the platform changed, refresh with: cp ../platform/schema.json " + vendoredSchema
+	refreshHint    = "if the platform changed, refresh with: scripts/vendor-schema.sh"
 )
 
 type schemaCollection struct {
-	Name   string `json:"name"`
-	Type   string `json:"type"`
-	Fields []struct {
+	Name       string  `json:"name"`
+	Type       string  `json:"type"`
+	UpdateRule *string `json:"updateRule"` // nil = superuser only
+	Fields     []struct {
 		Name   string `json:"name"`
 		Type   string `json:"type"`
 		System bool   `json:"system"`
@@ -89,7 +96,15 @@ var deliberatelyOmitted = map[string][]string{
 	// readable by the identity that owns it, but nothing types it in.
 	"nats_users":   {"public_key", "private_key", "seed", "jwt", "creds_file"},
 	"nebula_hosts": {"certificate", "private_key", "ca_certificate", "config_yaml", "expires_at"},
-	"nebula_ca":    {"certificate", "private_key"},
+	"nebula_ca": {
+		"certificate", "private_key",
+		// The rotation trigger and its material: see routeOnlyFields.
+		"rotate", "next_certificate", "next_private_key", "previous_certificate", "rotated_at",
+	},
+
+	// pb-nats writes a cutoff here when a key leaves allowed_importers. It is
+	// server-derived, and a stale value written back would lift a revocation.
+	"nats_account_exports": {"revocations"},
 
 	// Account keys are operator-level, and the two signing-key triggers are a
 	// route (POST /api/org/nats-account/keys), not fields a tenant writes.
@@ -101,38 +116,6 @@ var deliberatelyOmitted = map[string][]string{
 		"signing_keys", "signing_keys_private",
 		"add_signing_key", "remove_signing_key", "rotate_keys",
 		"jwt", "active", "revocations",
-	},
-}
-
-// libraryOwnedFields are fields the pb-* libraries create on the collections
-// they own, which the platform's schema.json does not declare -- so they are
-// absent from the vendored copy while being present on a live database.
-//
-// nats_roles' three allow_response fields used to be listed here. They left in
-// platform v0.10.0, which declares them in schema.json, while pb-nats v0.3.0
-// adds them to a database created before they existed (ensureRoleFields).
-// Until then a role's response permissions on such a database saved nothing.
-//
-// pb-nebula v0.3.0 added twelve fields across nebula_hosts and nebula_ca, and it
-// migrates them: InitializeCollections adds any declared field an existing
-// collection is missing (addMissingFields), so a database created before v0.3.0
-// acquires them on the next start rather than never. The platform's schema.json
-// still does not declare them -- it is a dump that predates the release, and
-// hand-copying a library's field definitions into it is the drift risk the
-// platform's own CLAUDE.md warns about -- so they are listed here instead.
-//
-// The floor is pb-nebula v0.3.0 (the platform pins v0.3.3). Against v0.2.0 every
-// flag below is a silent no-op, which is the failure this whole file exists to
-// make loud.
-var libraryOwnedFields = map[string][]string{
-	// Exposed as flags: the relay role, the two halves of gateway routing,
-	// underlay path preference, the transport overrides, and the renew trigger.
-	"nebula_hosts": {
-		"is_relay",
-		"unsafe_networks", "unsafe_routes",
-		"preferred_ranges",
-		"mtu", "tun_device",
-		"renew",
 	},
 }
 
@@ -217,9 +200,6 @@ func TestSpecFieldsExistInThePlatformSchema(t *testing.T) {
 			known := map[string]bool{}
 			for _, f := range collection.Fields {
 				known[f.Name] = true
-			}
-			for _, f := range libraryOwnedFields[spec.Collection] {
-				known[f] = true
 			}
 
 			for _, f := range spec.Fields {
@@ -325,17 +305,21 @@ func TestOmissionListsHaveNoStaleEntries(t *testing.T) {
 		})
 	}
 
-	for collection, owned := range libraryOwnedFields {
-		t.Run(collection+"/library-owned", func(t *testing.T) {
+	// routeOnlyFields says these fields exist and are forbidden. An entry for one
+	// the platform has dropped guards nothing.
+	for collection, fields := range routeOnlyFields {
+		t.Run(collection+"/route-only", func(t *testing.T) {
 			c, ok := schema[collection]
 			if !ok {
-				t.Fatalf("libraryOwnedFields names collection %q, which is not in the schema", collection)
+				t.Fatalf("routeOnlyFields names collection %q, which is not in the schema", collection)
 			}
-			for _, f := range owned {
-				for _, sf := range c.Fields {
-					if sf.Name == f {
-						t.Errorf("%q is now declared in the platform's schema.json, so it is no longer library-owned: drop the entry", f)
-					}
+			known := map[string]bool{}
+			for _, f := range c.Fields {
+				known[f.Name] = true
+			}
+			for f := range fields {
+				if !known[f] {
+					t.Errorf("routeOnlyFields lists %q, which the platform no longer has -- drop the entry", f)
 				}
 			}
 		})
@@ -379,15 +363,13 @@ func TestVendoredSchemaLooksComplete(t *testing.T) {
 // So this list is the other half of the vendored schema's job. A new collection
 // fails until someone either writes a spec for it or says here why not.
 var notAnEntity = map[string]string{
-	// PocketBase's own.
-	"_superusers": "PocketBase's superuser collection; managed with the pocketbase binary, not this CLI",
-
 	// Operator-only, by API rule. A tenant command for these would 404, and an
 	// operator has the console and the PocketBase admin UI.
 	"audit_logs":           "operator-only forensic trail with full record snapshots; no organization column, so it cannot be tenant-scoped",
 	"email_templates":      "superuser-only; edited in the operator console",
 	"nats_system_operator": "the NATS operator singleton, superuser-only; its public half reaches an edge box through GET /api/me/leaf-config",
 	"nats_publish_queue":   "pb-nats's internal outbox for account claims; server-owned plumbing, not a tenant resource",
+	"org_stats":            "operator-only view of per-organization counts; its rule replaces the rules of the tables it reads",
 
 	// Users are managed through the collections the CLI does expose.
 	"users": "a user is reached through memberships and invites here; self-service account editing belongs to the console",

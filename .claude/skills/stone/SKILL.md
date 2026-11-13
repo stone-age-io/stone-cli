@@ -204,6 +204,7 @@ Important semantics:
 - Server-managed fields (`collectionId`, `collectionName`, `created`, `updated`) are stripped by `pull` and ignored by `apply`.
 - `pull` does **not** write credentials or server-generated material into the workspace: `nats_users.creds_file` (the credential itself), `nebula_hosts.config_yaml` (host private key, inline), `invites.token`, plus certificates, JWTs and action triggers. It prints what it omitted per collection. This is pull-side only — a hand-written `revoke: true` still applies.
 - Read-only entities (`activity`) are excluded from both.
+- `pull` skips `organizations`, `nats_accounts` and `nebula_ca` unless the user is a Platform Operator (`is_operator`) or a superuser: their update rules are operator-only, so `apply` could not write them back. Memberships are filtered to the current organization. If an older workspace still holds those files, `apply` 404s on each; delete them.
 - Filenames are the entity's lookup key, falling back to `name`, then id, with a `-<id>` suffix on collisions. They are cosmetic — `apply` identifies records solely by the `id` field inside each file, so renaming files is safe.
 
 ## NATS / JetStream
@@ -249,6 +250,7 @@ stone nebula ca-rotate prepare|commit|finish   # roll the org's CA, one step at 
 - **Re-issue host certificates one at a time** with `stone nebula-host update <hostname> --renew`, redeploying each config; never script a sweep, because re-signing moves a fingerprint and the revocation blocklist matches on fingerprints.
 - **`--active=false` on a `nebula-host` revokes it across the whole CA**, not just its own network, and takes effect when each *peer's* config is redeployed. Deactivate to revoke — deleting the record leaves the certificate trusted until expiry. `--renew` is refused on an inactive host; reactivating re-issues anyway.
 - **`--is-relay` requires `--public-host-port`.** `--unsafe-networks` (on the gateway, signed into its certificate) and `--unsafe-routes` (on each consumer, `via` the gateway's overlay IP) are two halves on two different hosts; setting one alone moves no traffic.
+- **Underlay address flags are JSON** (pb-nebula v0.4.0+): `--additional-host-ports` (more host:port addresses peers dial), `--advertise-addrs` (more addresses this host reports; port 0 = its listening port) and `--local-allow-list` (Nebula's allow-list object). A bad `advertise_addrs` entry stops Nebula at its next start.
 
 ## Common failure modes and how to react
 

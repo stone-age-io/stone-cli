@@ -21,7 +21,9 @@ var pullCmd = &cobra.Command{
 	Short: "Pull records into the workspace as YAML files",
 	Long: `Pull writes one YAML file per record into <workspace>/<collection>/,
 named by the record's natural key (code, name, hostname, ...; falls back to id).
-Org-scoped collections are filtered to the current organization.
+Org-scoped collections, and memberships, are filtered to the current
+organization. organizations, nats_accounts and nebula_ca are pulled only for a
+Platform Operator, because only an operator can apply them back.
 Pass collection names to limit; otherwise all known collections are pulled.`,
 	RunE: runPull,
 }
@@ -83,6 +85,10 @@ func runPull(cmd *cobra.Command, args []string) error {
 	}
 
 	client := newPBClient(c)
+	operator, err := isOperator(client, c)
+	if err != nil {
+		return err
+	}
 	totals := 0
 	for _, spec := range entitySpecs {
 		if len(wanted) > 0 && !wanted[spec.Collection] && !wanted[spec.Name] && !wanted[spec.Plural] {
@@ -98,14 +104,18 @@ func runPull(cmd *cobra.Command, args []string) error {
 			}
 			continue
 		}
-		if spec.OrgScoped && c.CurrentOrganization == "" {
+		if operatorOnlyUpdate[spec.Collection] && !operator {
+			fmt.Fprintf(os.Stderr, "skip %s (only a Platform Operator can update it, so apply could not write it back)\n", spec.Collection)
+			continue
+		}
+		if pullScopedToOrg(spec) && c.CurrentOrganization == "" {
 			fmt.Fprintf(os.Stderr, "skip %s (org-scoped; no current organization set)\n", spec.Collection)
 			continue
 		}
 		// Sort by id so filename collision suffixes land on the same
 		// records across pulls (stable workspace diffs).
 		opts := pb.ListOptions{Sort: "id"}
-		if spec.OrgScoped {
+		if pullScopedToOrg(spec) {
 			opts.Filter = fmt.Sprintf(`organization="%s"`, c.CurrentOrganization)
 		}
 		items, err := client.ListAll(spec.Collection, opts)
@@ -158,6 +168,52 @@ func runPull(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// operatorOnlyUpdate names the collections whose updateRule admits only a
+// Platform Operator. An owner or admin can READ them, so pull used to write them,
+// and every record in them then failed on apply: each file has an id, so apply
+// PATCHes it, and the rule answers 404. A workspace is a list of things the
+// caller can reconcile, so pull leaves these out for anyone else.
+// cmd/sync_test.go checks this list against the vendored schema's rules.
+var operatorOnlyUpdate = map[string]bool{
+	"organizations": true,
+	"nats_accounts": true,
+	"nebula_ca":     true,
+}
+
+// pullScopedToOrg reports whether pull filters a collection to the current
+// organization. memberships is not OrgScoped -- its organization is a flag,
+// not injected -- but its listRule returns the caller's own memberships in
+// EVERY organization (the switcher needs them), and those in other
+// organizations are not the caller's to update from this one.
+func pullScopedToOrg(spec EntitySpec) bool {
+	return spec.OrgScoped || spec.Collection == "memberships"
+}
+
+// isOperator reports whether the authenticated caller is a Platform Operator:
+// `is_operator` on its own users record. A superuser passes every rule, so it
+// counts as one; any other auth collection (a thing, a host) does not.
+func isOperator(client *pb.Client, c ctx.Context) (bool, error) {
+	if c.Auth.Collection == "_superusers" {
+		return true, nil
+	}
+	if c.Auth.Collection != "users" {
+		return false, nil
+	}
+	id := c.Auth.UserID
+	if id == "" {
+		var err error
+		if id, err = pb.DecodeJWTUserID(c.Auth.Token); err != nil {
+			return false, fmt.Errorf("cannot determine user id: %w", err)
+		}
+	}
+	r, err := client.Get("users", id, pb.GetOptions{Fields: "is_operator"})
+	if err != nil {
+		return false, fmt.Errorf("read own users record: %w", err)
+	}
+	op, _ := r["is_operator"].(bool)
+	return op, nil
+}
+
 // workspaceOmit names, per collection, fields that `pull` must not write into a
 // workspace file.
 //
@@ -204,6 +260,9 @@ var workspaceOmit = map[string][]string{
 	"nebula_ca":     {"certificate", "expires_at", "rotate", "next_certificate", "previous_certificate", "rotated_at"},
 	"invites":       {"token", "resend_invite"},
 	"locations":     {"path"},
+	// pb-nats writes a cutoff here when a key leaves allowed_importers. A stale
+	// copy applied back would drop a later cutoff, and so lift a revocation.
+	"nats_account_exports": {"revocations"},
 }
 
 // stripWorkspaceFields removes the fields above in place, and reports whether it

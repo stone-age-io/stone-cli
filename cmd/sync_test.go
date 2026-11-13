@@ -1,6 +1,10 @@
 package cmd
 
-import "testing"
+import (
+	"regexp"
+	"strings"
+	"testing"
+)
 
 // `stone pull` writes one YAML file per record into a directory the docs tell
 // you to commit to git. What it must never write is a credential -- and it did:
@@ -40,9 +44,9 @@ func TestCredentialsAreNeverWrittenToTheWorkspace(t *testing.T) {
 }
 
 // The filter runs on whatever the server sent, so an entry for a field that no
-// longer exists is harmless at runtime and misleading to read. Checked against
-// the same three sources the drift tests use, because four of these fields are
-// owned by pb-nebula rather than declared in the platform's schema.json.
+// longer exists is harmless at runtime and misleading to read. The vendored
+// schema comes from a live server, so it includes the fields pb-nats and
+// pb-nebula add at boot.
 func TestWorkspaceOmitNamesFieldsThatExist(t *testing.T) {
 	schema := loadVendoredSchema(t)
 
@@ -55,12 +59,6 @@ func TestWorkspaceOmitNamesFieldsThatExist(t *testing.T) {
 			known := map[string]bool{}
 			for _, f := range c.Fields {
 				known[f.Name] = true
-			}
-			for _, f := range libraryOwnedFields[collection] {
-				known[f] = true
-			}
-			for f := range routeOnlyFields[collection] {
-				known[f] = true
 			}
 			for _, f := range fields {
 				if !known[f] {
@@ -137,5 +135,43 @@ func TestNatsUserActiveIsAFlagButNeverPulled(t *testing.T) {
 	}
 	if !omitted {
 		t.Error("workspaceOmit[nats_users] does not drop `active`: a pulled value re-applied would suspend or un-suspend an identity")
+	}
+}
+
+// pull leaves out a collection only an operator can update, because apply could
+// not write it back for anyone else. The list is hand-kept, so it is checked
+// against the rules in the vendored schema: a syncable collection whose
+// updateRule is "operator, and nothing else" must be on it, and nothing else
+// may be.
+func TestOperatorOnlyUpdateMatchesTheSchema(t *testing.T) {
+	schema := loadVendoredSchema(t)
+	comment := regexp.MustCompile(`//.*`) // a rule comment runs to the end of its line
+
+	for _, spec := range entitySpecs {
+		if !spec.syncable() {
+			continue
+		}
+		c, ok := schema[spec.Collection]
+		if !ok || c.UpdateRule == nil {
+			continue
+		}
+		rule := strings.Join(strings.Fields(comment.ReplaceAllString(*c.UpdateRule, "")), " ")
+		want := strings.HasPrefix(rule, "@request.auth.is_operator = true") && !strings.Contains(rule, "||")
+		if got := operatorOnlyUpdate[spec.Collection]; got != want {
+			t.Errorf("%s: operatorOnlyUpdate = %v, but its updateRule says %v: %q", spec.Collection, got, want, rule)
+		}
+	}
+}
+
+// memberships is not OrgScoped, but its listRule also returns the caller's own
+// memberships in other organizations, which the caller cannot update from this
+// one. pull must filter it to the current organization like the rest.
+func TestPullScopesMembershipsToTheCurrentOrganization(t *testing.T) {
+	spec, ok := specByCollection("memberships")
+	if !ok {
+		t.Fatal("no memberships spec")
+	}
+	if !pullScopedToOrg(spec) {
+		t.Error("pull does not filter memberships to the current organization: an Owner's membership in another org lands in the workspace and fails on apply")
 	}
 }
