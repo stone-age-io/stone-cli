@@ -22,6 +22,9 @@ you keep a pulled workspace.
   pulled as an owner or admin**, and any `memberships/` file for another
   organization. `pull` no longer writes them, but `apply` still sends the files
   that are there, and each one fails with a 404.
+- **Delete the `active:` line from every file under `things/`, `nebula_hosts/`
+  and `organizations/`** in an existing workspace. Earlier versions pulled it,
+  and `apply` sends back whatever is in the file (see Fixed).
 
 ### Added
 
@@ -55,6 +58,18 @@ you keep a pulled workspace.
   generated schema has them. The tests now also fail on a `routeOnlyFields`
   entry for a field the platform no longer has, and when `operatorOnlyUpdate`
   (in `cmd/sync.go`) disagrees with the update rules in the schema.
+
+### Fixed
+
+- **A stale workspace file no longer reactivates a decommissioned device.**
+  `pull` wrote `things.active`, and `apply` sends back every key in a file, so
+  an admin who deactivated a Thing in the console had it reactivated, with
+  working NATS and Nebula credentials, by the next `apply` of an older pull.
+  `pull` now leaves out every `active` flag the platform acts on:
+  `things.active`, `nebula_hosts.active` and `organizations.active` join
+  `nats_users.active` and `nats_accounts.active`.
+  `TestEdgeTriggeredFlagsAreNeverPulled` pins the list. A hand-written
+  `active: false` still applies.
 
 ## [0.6.1] - 2026-11-12
 

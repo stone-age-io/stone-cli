@@ -244,10 +244,19 @@ func isOperator(client *pb.Client, c ctx.Context) (bool, error) {
 // pulled path is therefore harmless to apply and stale the first time anything
 // above it moves -- noise in a file people diff.
 //
-// nats_users.active is omitted for the trigger reason, not the secret one:
-// pb-nats acts on its EDGE (true->false revokes the key with a permanent cutoff,
-// false->true re-mints), so a pulled value re-applied after an admin changed it
-// would silently suspend or un-suspend that identity.
+// Every `active` flag the platform acts on is omitted for the trigger reason,
+// not the secret one. Apply sends back every key in a file, so a pulled `true`
+// re-applied after an admin set `false` silently undoes the decision:
+//   - nats_users.active: pb-nats acts on its EDGE (true->false revokes the key
+//     with a permanent cutoff, false->true re-mints).
+//   - things.active: false->true reactivates a decommissioned device. The
+//     platform re-enables its NATS user and Nebula host and refreshes its
+//     tokens, so a stale file hands a retired device working credentials.
+//   - nebula_hosts.active: false->true re-issues a revoked host's certificate.
+//   - nats_accounts.active and organizations.active: reactivating lifts a
+//     suspension and puts the account back on the NATS server.
+//
+// TestEdgeTriggeredFlagsAreNeverPulled pins this list, so deleting a line fails.
 //
 // This is a pull-side filter only. A hand-written file that sets one of these
 // still applies -- `revoke: true` or `active: false` is a legitimate thing to
@@ -256,10 +265,12 @@ func isOperator(client *pb.Client, c ctx.Context) (bool, error) {
 var workspaceOmit = map[string][]string{
 	"nats_users":    {"creds_file", "jwt", "public_key", "active", "regenerate", "revoke"},
 	"nats_accounts": {"jwt", "public_key", "signing_public_key", "signing_keys", "active", "revocations", "rotate_keys", "add_signing_key", "remove_signing_key"},
-	"nebula_hosts":  {"config_yaml", "certificate", "ca_certificate", "expires_at", "renew"},
+	"nebula_hosts":  {"config_yaml", "certificate", "ca_certificate", "expires_at", "renew", "active"},
 	"nebula_ca":     {"certificate", "expires_at", "rotate", "next_certificate", "previous_certificate", "rotated_at"},
 	"invites":       {"token", "resend_invite"},
 	"locations":     {"path"},
+	"things":        {"active"},
+	"organizations": {"active"},
 	// pb-nats writes a cutoff here when a key leaves allowed_importers. A stale
 	// copy applied back would drop a later cutoff, and so lift a revocation.
 	"nats_account_exports": {"revocations"},

@@ -43,6 +43,36 @@ func TestCredentialsAreNeverWrittenToTheWorkspace(t *testing.T) {
 	}
 }
 
+// edgeTriggered lists the `active` flags the platform ACTS on. Apply sends back
+// every key in a file, so a pulled `true` applied after an admin set `false`
+// undoes the decision: it reactivated a decommissioned device and handed it
+// working credentials, until things.active joined the list. Spelled out
+// separately from workspaceOmit so that deleting a line there fails here.
+var edgeTriggered = map[string]string{
+	"things.active":        "reactivates a decommissioned device and re-enables its credentials",
+	"nats_users.active":    "re-mints a suspended NATS identity",
+	"nebula_hosts.active":  "re-issues a revoked host's certificate",
+	"nats_accounts.active": "puts a suspended account back on the NATS server",
+	"organizations.active": "lifts an organization's suspension",
+}
+
+func TestEdgeTriggeredFlagsAreNeverPulled(t *testing.T) {
+	for qualified, why := range edgeTriggered {
+		collection, field := split2(qualified, '.')
+		omitted := false
+		for _, f := range workspaceOmit[collection] {
+			if f == field {
+				omitted = true
+				break
+			}
+		}
+		if !omitted {
+			t.Errorf("workspaceOmit[%q] does not drop %q, so a stale workspace file %s on the next apply",
+				collection, field, why)
+		}
+	}
+}
+
 // The filter runs on whatever the server sent, so an entry for a field that no
 // longer exists is harmless at runtime and misleading to read. The vendored
 // schema comes from a live server, so it includes the fields pb-nats and
