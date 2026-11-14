@@ -10,11 +10,14 @@ that period, and this file starts where the versioned releases do.
 
 ## [Unreleased]
 
-**Caught up with platform v0.18.1.** The vendored schema the drift tests read
+## [0.7.0] - 2026-11-14
+
+**Caught up with platform v0.19.1.** The vendored schema the drift tests read
 was from platform v0.11.0, and the tests passed on it. It is now generated from
 a live server, so it also shows the fields pb-nats and pb-nebula add at boot.
-Four fields the platform added since v0.11.0 had no flag. See **Upgrading** if
-you keep a pulled workspace.
+Four fields the platform added since v0.11.0 had no flag. A stale workspace
+file no longer reactivates a decommissioned device. See **Upgrading** if you
+keep a pulled workspace.
 
 ### Upgrading
 
@@ -70,6 +73,12 @@ you keep a pulled workspace.
   `nats_users.active` and `nats_accounts.active`.
   `TestEdgeTriggeredFlagsAreNeverPulled` pins the list. A hand-written
   `active: false` still applies.
+- **The docs no longer call `apply` transactional.** The README and SKILLS.md
+  said it sent records through PocketBase's transactional batch API. The
+  platform leaves batch requests off by default, and a refused or failed batch
+  is re-sent one record at a time, so records before a failure stay applied.
+  The behaviour is unchanged; the docs now describe it.
+- **The README's install pin** said `VERSION=0.1.0`. It now names this release.
 
 ## [0.6.1] - 2026-11-12
 

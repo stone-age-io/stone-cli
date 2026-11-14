@@ -170,7 +170,7 @@ snapshots.
 
 ```sh
 stone pull                                  # writes <workspace>/<collection>/<lookup-key>.yaml per record
-stone apply                                 # POSTs through /api/batch in 50-record transactions
+stone apply                                 # 50-record batches; falls back to one at a time, so not all-or-nothing
 stone apply path/to/dir path/to/file.yaml   # restrict to specific paths
 ```
 

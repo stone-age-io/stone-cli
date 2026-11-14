@@ -21,7 +21,7 @@ the Control Plane — that it talks to.
 
 ```sh
 # 1) Get the binary -- prebuilt, for the platform you are on
-VERSION=0.1.0
+VERSION=0.7.0
 curl -sSLO https://github.com/stone-age-io/stone-cli/releases/download/v${VERSION}/stone_${VERSION}_linux_amd64.tar.gz
 tar xzf stone_${VERSION}_linux_amd64.tar.gz     # unpacks ./stone, LICENSE, README.md, SKILLS.md
 
@@ -221,9 +221,14 @@ version may hold those directories: delete them, or each file fails on
 `apply` with a 404.
 
 `stone apply` walks the workspace (or the paths you pass), groups records into
-batches of up to 50, and POSTs them through PocketBase's transactional `/api/batch`
-endpoint. Records with an `id` are PATCHed; records without are POSTed and the
-returned id is written back into the file. Apply is safe to re-run.
+batches of up to 50, and sends each batch to PocketBase's `/api/batch` endpoint.
+Records with an `id` are PATCHed; records without are POSTed and the returned id
+is written back into the file. Apply is safe to re-run.
+
+**Apply is not all-or-nothing.** The platform leaves batch requests off by
+default, and when a batch is refused or one of its records fails, `apply`
+re-sends that batch one record at a time so it can name the record that failed.
+Records before a failure stay applied. Fix the file and run `apply` again.
 
 For diff/status/history, put the workspace in `git`.
 

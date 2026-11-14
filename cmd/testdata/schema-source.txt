@@ -8,9 +8,9 @@ the API. That includes the fields pb-nats and pb-nebula add to their own
 collections at boot, which the platform's schema.json does not declare.
 PocketBase's own system collections are dropped. Do not edit it by hand.
 
-platform release: v0.18.1
-platform commit:  7b9c6b8
-generated:        2026-11-13
+platform release: v0.19.1
+platform commit:  ab40285
+generated:        2026-11-14
 
 Refresh with:
   scripts/vendor-schema.sh [platform-checkout]
