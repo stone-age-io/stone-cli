@@ -10,6 +10,15 @@ that period, and this file starts where the versioned releases do.
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-11-14
+
+**Ready for pb-nebula v0.6.0.** That release keeps the certificates a Nebula
+host no longer holds in two new columns and builds every peer's blocklist from
+them. `pull` no longer writes them, and `edit` no longer sends back fields you
+did not change, so neither can lift a revocation. Upgrade before your platform
+moves to pb-nebula v0.6.0, and see **Upgrading** if you keep a pulled
+workspace.
+
 ### Upgrading
 
 - **Delete the `revoked_certificates:` and `retired_certificates:` keys from
