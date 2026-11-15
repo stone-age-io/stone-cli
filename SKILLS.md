@@ -78,7 +78,7 @@ Verbs `ls / get / create / update / delete / edit` are derived from a single dec
 
 `get` (alias `show`) prints one record. Both `get` and `ls` accept `--fields a,b,c` for server-side projection (PocketBase's `fields` query param); on `ls` table output the requested fields become the columns.
 
-`edit` opens the record as YAML in `$EDITOR` and PATCHes on save.
+`edit` opens the record as YAML in `$EDITOR` and, on save, PATCHes only the fields you changed. Deleting a line does not clear a field; set it to null or empty instead.
 
 ### Field types
 

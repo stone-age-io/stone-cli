@@ -73,6 +73,47 @@ func TestEdgeTriggeredFlagsAreNeverPulled(t *testing.T) {
 	}
 }
 
+// revocationState lists the fields where a library records what it has
+// revoked, and builds a blocklist from them. Apply sends back every key in a
+// file, so a pulled copy applied after a later revocation overwrites the list
+// without it, and the next regeneration lifts the revocation silently. Spelled
+// out separately from workspaceOmit so that deleting a line there fails here.
+var revocationState = map[string]string{
+	"nebula_hosts.revoked_certificates": "drops a certificate every peer must refuse from pki.blocklist",
+	"nebula_hosts.retired_certificates": "drops a certificate an inactive host may still hold from pki.blocklist",
+}
+
+func TestRevocationStateIsNeverPulled(t *testing.T) {
+	for qualified, why := range revocationState {
+		collection, field := split2(qualified, '.')
+		omitted := false
+		for _, f := range workspaceOmit[collection] {
+			if f == field {
+				omitted = true
+				break
+			}
+		}
+		if !omitted {
+			t.Errorf("workspaceOmit[%q] does not drop %q, so a stale workspace file %s on the next apply",
+				collection, field, why)
+		}
+	}
+}
+
+// notYetVendored names workspaceOmit entries for fields a library adds in a
+// release newer than the platform the vendored schema came from. The omission
+// has to ship before the platform does: a CLI that pulls them is already
+// writing them into workspaces against any server that has upgraded.
+//
+// Each entry expires: once a refreshed schema has the field, the test below
+// fails until the entry is removed here (and the field is then explained in
+// deliberatelyOmitted, which the drift tests will ask for).
+var notYetVendored = map[string]bool{
+	// pb-nebula v0.6.0. The vendored schema is platform v0.19.1, on v0.5.1.
+	"nebula_hosts.revoked_certificates": true,
+	"nebula_hosts.retired_certificates": true,
+}
+
 // The filter runs on whatever the server sent, so an entry for a field that no
 // longer exists is harmless at runtime and misleading to read. The vendored
 // schema comes from a live server, so it includes the fields pb-nats and
@@ -91,8 +132,12 @@ func TestWorkspaceOmitNamesFieldsThatExist(t *testing.T) {
 				known[f.Name] = true
 			}
 			for _, f := range fields {
-				if !known[f] {
+				pending := notYetVendored[collection+"."+f]
+				switch {
+				case !known[f] && !pending:
 					t.Errorf("omits %q, which no longer exists -- drop the entry.\n%s", f, refreshHint)
+				case known[f] && pending:
+					t.Errorf("%s.%s is in the vendored schema now -- drop it from notYetVendored", collection, f)
 				}
 			}
 		})

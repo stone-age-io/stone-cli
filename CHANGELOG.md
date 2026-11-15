@@ -10,6 +10,35 @@ that period, and this file starts where the versioned releases do.
 
 ## [Unreleased]
 
+### Upgrading
+
+- **Delete the `revoked_certificates:` and `retired_certificates:` keys from
+  every file under `nebula_hosts/`** in a workspace pulled from a platform on
+  pb-nebula v0.6.0 or newer. Earlier versions of `stone` pulled them, and
+  `apply` sends back whatever is in the file (see Fixed).
+
+### Changed
+
+- **The drift tests accept a `workspaceOmit` entry for a field newer than the
+  vendored schema** if `notYetVendored` (in `cmd/sync_test.go`) lists it. The
+  vendored schema is platform v0.19.1, which is on pb-nebula v0.5.1. Each entry
+  fails the test once a refreshed schema has the field.
+
+### Fixed
+
+- **A stale workspace file no longer lifts a Nebula revocation.** pb-nebula
+  v0.6.0 keeps the certificates a host no longer holds in
+  `nebula_hosts.revoked_certificates` and `retired_certificates`, and builds
+  every peer's `pki.blocklist` from them. `pull` wrote both, and `apply` sends
+  back every key in a file, so applying an older pull replaced the lists, and
+  the next config regeneration dropped any revocation made since. `pull` now
+  leaves both out. `TestRevocationStateIsNeverPulled` pins them.
+- **`edit` sends only the fields you changed.** It used to PATCH the whole
+  record back. That record was a copy from when the editor opened, so a change
+  the server made in the meantime was overwritten: a re-issue lost its
+  `revoked_certificates` entry, and a deactivation was undone by the stale
+  `active: true`. If nothing changed, `edit` says so and sends nothing.
+
 ## [0.7.0] - 2026-11-14
 
 **Caught up with platform v0.19.1.** The vendored schema the drift tests read

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"reflect"
 	"runtime"
 	"strings"
 
@@ -1063,6 +1064,12 @@ func buildEditCmd(spec EntitySpec) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			// Compare against what the editor was given, parsed the same
+			// way as what comes back, so an untouched value compares equal.
+			opened := pb.Record{}
+			if err := yaml.Unmarshal(data, &opened); err != nil {
+				return err
+			}
 			if _, err := tmpf.Write(data); err != nil {
 				tmpf.Close()
 				return err
@@ -1075,15 +1082,45 @@ func buildEditCmd(spec EntitySpec) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			// Drop id from the patch body if present; the URL carries it.
-			delete(updated, "id")
-			r, err := client.Update(spec.Collection, id, updated)
+			patch := editPatch(opened, updated)
+			if len(patch) == 0 {
+				fmt.Fprintln(os.Stderr, "edit: no changes")
+				return nil
+			}
+			r, err := client.Update(spec.Collection, id, patch)
 			if err != nil {
 				return err
 			}
 			return pb.PrintRecord(os.Stdout, r, resolveOutput())
 		},
 	}
+}
+
+// editPatch returns only the keys of edited whose value differs from opened,
+// the record the editor was given. A key the user did not touch is not sent.
+//
+// edit used to PATCH the whole file back. The file is a copy taken when the
+// editor opened, so every untouched field was a stale value racing the
+// server. A re-issue in that window (a renewal sweep, a CA rotation, another
+// admin) had its nebula_hosts.revoked_certificates entry overwritten, and the
+// next config regeneration dropped that certificate from every peer's
+// pki.blocklist. The same applied to `active` on every entity.
+//
+// A deleted key is not sent either, as before: deleting a line is not a way
+// to clear a field. Write it as null or empty instead. id is never sent; the
+// URL carries it.
+func editPatch(opened, edited pb.Record) pb.Record {
+	patch := pb.Record{}
+	for k, v := range edited {
+		if k == "id" {
+			continue
+		}
+		if old, ok := opened[k]; ok && reflect.DeepEqual(old, v) {
+			continue
+		}
+		patch[k] = v
+	}
+	return patch
 }
 
 func addFieldFlags(cmd *cobra.Command, spec EntitySpec, requireRequired bool) {

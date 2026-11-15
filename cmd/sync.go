@@ -256,7 +256,8 @@ func isOperator(client *pb.Client, c ctx.Context) (bool, error) {
 //   - nats_accounts.active and organizations.active: reactivating lifts a
 //     suspension and puts the account back on the NATS server.
 //
-// TestEdgeTriggeredFlagsAreNeverPulled pins this list, so deleting a line fails.
+// TestEdgeTriggeredFlagsAreNeverPulled and TestRevocationStateIsNeverPulled pin
+// this list, so deleting a line fails.
 //
 // This is a pull-side filter only. A hand-written file that sets one of these
 // still applies -- `revoke: true` or `active: false` is a legitimate thing to
@@ -265,7 +266,11 @@ func isOperator(client *pb.Client, c ctx.Context) (bool, error) {
 var workspaceOmit = map[string][]string{
 	"nats_users":    {"creds_file", "jwt", "public_key", "active", "regenerate", "revoke"},
 	"nats_accounts": {"jwt", "public_key", "signing_public_key", "signing_keys", "active", "revocations", "rotate_keys", "add_signing_key", "remove_signing_key"},
-	"nebula_hosts":  {"config_yaml", "certificate", "ca_certificate", "expires_at", "renew", "active"},
+	"nebula_hosts": {"config_yaml", "certificate", "ca_certificate", "expires_at", "renew", "active",
+		// pb-nebula (v0.6.0+) keeps the certificates a host no longer holds here
+		// and builds every peer's pki.blocklist from them. A stale copy applied
+		// back would drop a later revocation, and so lift it.
+		"revoked_certificates", "retired_certificates"},
 	"nebula_ca":     {"certificate", "expires_at", "rotate", "next_certificate", "previous_certificate", "rotated_at"},
 	"invites":       {"token", "resend_invite"},
 	"locations":     {"path"},
