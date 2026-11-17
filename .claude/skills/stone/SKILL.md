@@ -101,16 +101,17 @@ natural key (`type` → `temp-sensor`, `location` → `hq`, `user` →
 `someone@example.com`). `-o json` and `-o yaml` are untouched and return the
 relation id the server sent.
 
-**This matters for you specifically:** to feed a relation into another command,
-read it with `-o json`, never off a table. A code in a `--type` flag is a 400.
+**This matters for you specifically:** a code you read off a table works in a
+relation flag (`--type temp-sensor`), but to parse output, use `-o json`, never
+a table.
 
 A blank relation cell means unset *or* not readable by this caller — `-o json`
 distinguishes them.
 
 ### Field flag rules
 
-- **Relations** (`--type`, `--location`, `--owner`, etc.) take a **15-char PocketBase id only**. Natural keys resolve on positional args, never on relation flags. Discover ids via `stone <type> get <key> --fields id -o json` or `stone <type> ls -o json` first.
-- **Multi-relations** (`--operations id1,id2` or repeated `--operations id1 --operations id2`) accept comma-separated lists.
+- **Relations** (`--type`, `--location`, `--role-id`, `--network-id`, etc.) take the target's natural key or a 15-char id, resolved exactly like a positional arg (current org, a code ignores case, ambiguity fails with the candidate ids). Since stone 0.9.0. The relations to users (`--owner`, `--user`, `--invited-by`) are id-only.
+- **Multi-relations** (`--operations heartbeat,reboot` or repeated `--operations heartbeat --operations reboot`) accept comma-separated lists, each value resolved the same way.
 - **JSON fields** (`--metadata`, `--metadata-schema`, `--firewall-inbound`, …) accept:
   - inline JSON: `--metadata '{"k":"v"}'`
   - file: `--metadata @./meta.json`
@@ -137,11 +138,11 @@ stone thing-type create --name "Temp Sensor" --code temp \
 
 # Explicit password
 stone thing create --email s42@example.com --password 'changeMe123!' \
-    --code sensor-42 --type <thing_type_id> --location <location_id> -o json
+    --code sensor-42 --type temp-sensor --location hq -o json
 
 # CLI-generated password (printed once to stderr)
 stone thing create --email s43@example.com --random-password \
-    --code sensor-43 --type <thing_type_id> -o json 2> pw.txt
+    --code sensor-43 --type temp-sensor -o json 2> pw.txt
 
 stone thing get sensor-42 --fields code,name,location   # lookup by code (case ignored) or id
 stone thing edit sensor-42         # opens $EDITOR with YAML, PATCHes on save
@@ -159,7 +160,7 @@ stone thing edit sensor-42         # opens $EDITOR with YAML, PATCHes on save
 `stone thing create` writes an inventory row only. To stand up real hardware, use the transactional route:
 
 ```sh
-stone thing provision --code gw-01 --name "Gateway 01"   --type <thing_type_id> --nats-mode auto   --nebula-mode auto --nebula-network <id> --nebula-ip 10.128.0.42
+stone thing provision --code gw-01 --name "Gateway 01"   --type gateway --location hq --nats-mode auto   --nebula-mode auto --nebula-network main --nebula-ip 10.128.0.42
 ```
 
 - Wraps `POST /api/org/things`: Thing + NATS identity + Nebula host in one transaction. No partial state on failure.
@@ -264,7 +265,8 @@ stone nebula ca-rotate prepare|commit|finish   # roll the org's CA, one step at 
 - **`collection is org-scoped but no current organization set`** — bootstrap step 3.
 - **`nats-sync: skipped — no NATS URL on this stone context`** — `nats_url` was never set. If the user actually needs NATS, run `stone context create` again or `stone org switch <org> --nats-url nats://...` to set it.
 - **`nats-sync: skipped — no membership found for this user+org`** — the authenticated user is an operator on an org they aren't a member of; NATS creds are per-membership. Not a bug.
-- **HTTP 400 from PocketBase on a relation field** — likely passed something that isn't a 15-char id. Re-look it up with `get <key> --fields id -o json` or `ls -o json`.
+- **`--<flag>: no <entity> with <key> "..."`** — the relation flag's key matched nothing in this org. Check it with `stone <type> ls`.
+- **HTTP 400 from PocketBase on a relation field** — an id-only relation to users (`--owner`, `--user`, `--invited-by`) got something that isn't a 15-char id.
 - **`multiple <plural> match <key> "..."`** — the natural key is ambiguous in this org. Use one of the 15-char ids listed in the error.
 - **`Invalid CA rotation: ...`** — the rotation steps were run out of order, or `finish` was attempted while a host named in the message still holds an outgoing-CA certificate. Read the message; it says which. There is no force flag.
 - **HTTP 404 updating `nebula-ca` or `nats-account`** — both are operator-only for every field. The tenant operations are `stone nebula ca-rotate` and `stone nats account-keys`.
@@ -274,7 +276,7 @@ stone nebula ca-rotate prepare|commit|finish   # roll the org's CA, one step at 
 
 ## Things not to do
 
-- Don't invent record ids. Always look up relations first.
+- Don't invent record ids. Pass a natural key you have seen, or look the id up first.
 - Don't write a per-entity command — there isn't one. Everything routes through `entity.go`'s `EntitySpec` table.
 - Don't run `stone apply` against a workspace you didn't `pull` from or hand-author with knowledge of the schema — apply will dutifully create records.
 - Don't expect `apply` to delete things. It only creates and updates.
