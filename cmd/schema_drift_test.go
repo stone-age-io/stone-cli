@@ -38,14 +38,55 @@ const (
 )
 
 type schemaCollection struct {
+	ID         string  `json:"id"`
 	Name       string  `json:"name"`
 	Type       string  `json:"type"`
 	UpdateRule *string `json:"updateRule"` // nil = superuser only
 	Fields     []struct {
-		Name   string `json:"name"`
-		Type   string `json:"type"`
-		System bool   `json:"system"`
+		Name         string `json:"name"`
+		Type         string `json:"type"`
+		System       bool   `json:"system"`
+		CollectionID string `json:"collectionId"` // relation fields: the target collection's id
 	} `json:"fields"`
+}
+
+// A relation flag's Target must be the collection the platform says the field
+// points at, and every relation to a collection the CLI models must have one.
+// A wrong Target looks a key up in the wrong collection and fails with "no ...
+// with code"; a missing one quietly leaves the flag id-only.
+func TestRelationTargetsMatchThePlatformSchema(t *testing.T) {
+	schema := loadVendoredSchema(t)
+	nameByID := map[string]string{}
+	for _, c := range schema {
+		nameByID[c.ID] = c.Name
+	}
+
+	for _, spec := range entitySpecs {
+		for _, f := range spec.Fields {
+			if f.Type != FID && f.Type != FIDs {
+				if f.Target != "" {
+					t.Errorf("%s --%s has a Target but is not a relation field", spec.Name, f.flagName())
+				}
+				continue
+			}
+			var want string
+			for _, sf := range schema[spec.Collection].Fields {
+				if sf.Name == f.Name {
+					want = nameByID[sf.CollectionID]
+				}
+			}
+			if want == "" {
+				t.Errorf("%s --%s: the schema has no relation target for %q.\n%s", spec.Name, f.flagName(), f.Name, refreshHint)
+				continue
+			}
+			if _, modelled := specByCollection(want); !modelled {
+				want = "" // users: no EntitySpec, so the flag stays id-only
+			}
+			if f.Target != want {
+				t.Errorf("%s --%s: Target is %q, but the platform's relation points at %q", spec.Name, f.flagName(), f.Target, want)
+			}
+		}
+	}
 }
 
 // neverExposed are fields no entity spec should carry a flag for, whatever the

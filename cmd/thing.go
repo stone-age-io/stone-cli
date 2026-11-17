@@ -60,7 +60,7 @@ Each identity has three modes:
             default role unless --nats-role names another. Nebula needs
             --nebula-network and --nebula-ip; the route does not allocate an
             address for you.
-    link    attach an identity that already exists, by id.
+    link    attach an identity that already exists, by name or id.
 
 Attaching either identity requires owner or admin. A member may provision a
 Thing with both modes left at none.
@@ -71,13 +71,13 @@ this cannot be aimed at another tenant.
 Examples:
 
   # inventory only, no identities; the server generates the code
-  stone thing provision --name "Probe 07" --type <thing_types_id>
+  stone thing provision --name "Probe 07" --type temp-sensor
 
   # a gateway with a fresh NATS identity and a fresh Nebula host
   stone thing provision --code gw-01 --name "Gateway 01" \
-    --type <thing_types_id> --location <locations_id> \
+    --type gateway --location hq \
     --nats-mode auto \
-    --nebula-mode auto --nebula-network <id> --nebula-ip 10.128.0.42`,
+    --nebula-mode auto --nebula-network main --nebula-ip 10.128.0.42`,
 	Args: cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		c, err := ctx.Active(flagContext)
@@ -124,6 +124,24 @@ Examples:
 			return fmt.Errorf("--metadata: %w", err)
 		}
 
+		// Each id flag also takes the target's natural key, as on `thing create`.
+		client := newPBClient(c)
+		for _, r := range []struct {
+			flag, collection string
+			value            *string
+		}{
+			{"type", "thing_types", &thingType},
+			{"location", "locations", &location},
+			{"nats-user", "nats_users", &natsUser},
+			{"nats-role", "nats_roles", &natsRole},
+			{"nebula-host", "nebula_hosts", &nebulaHost},
+			{"nebula-network", "nebula_networks", &nebulaNetwork},
+		} {
+			if *r.value, err = resolveFlagValue(client, c.CurrentOrganization, r.flag, r.collection, *r.value); err != nil {
+				return err
+			}
+		}
+
 		body := map[string]any{
 			"name":        name,
 			"code":        code,
@@ -152,7 +170,7 @@ Examples:
 			Email    string `json:"email"`
 			Password string `json:"password"`
 		}
-		if err := newPBClient(c).CallRoute("/api/org/things", body, &out); err != nil {
+		if err := client.CallRoute("/api/org/things", body, &out); err != nil {
 			return err
 		}
 
@@ -190,17 +208,17 @@ func init() {
 	f.String("name", "", "display name (required)")
 	f.String("code", "", "stable short code, unique within the organization ignoring case; omit it to have one generated under the type's prefix")
 	f.String("description", "", "free-form description")
-	f.String("type", "", "thing_types id; its prefix goes into a generated code (frozen once set)")
-	f.String("location", "", "locations id")
+	f.String("type", "", "thing type code or id; its prefix goes into a generated code (frozen once set)")
+	f.String("location", "", "location code or id")
 	f.String("metadata", "", "arbitrary JSON metadata (inline JSON, @file, or -)")
 
 	f.String("nats-mode", "none", "NATS identity: auto, link, or none")
-	f.String("nats-user", "", "nats_users id to attach (--nats-mode link)")
-	f.String("nats-role", "", "nats_roles id for the new identity (--nats-mode auto; defaults to the org's default role)")
+	f.String("nats-user", "", "NATS username or id to attach (--nats-mode link)")
+	f.String("nats-role", "", "NATS role name or id for the new identity (--nats-mode auto; defaults to the org's default role)")
 
 	f.String("nebula-mode", "none", "Nebula host: auto, link, or none")
-	f.String("nebula-host", "", "nebula_hosts id to attach (--nebula-mode link)")
-	f.String("nebula-network", "", "nebula_networks id for the new host (--nebula-mode auto)")
+	f.String("nebula-host", "", "Nebula hostname or id to attach (--nebula-mode link)")
+	f.String("nebula-network", "", "Nebula network name or id for the new host (--nebula-mode auto)")
 	f.String("nebula-ip", "", "overlay IP for the new host (--nebula-mode auto; not allocated for you)")
 
 	_ = thingProvisionCmd.MarkFlagRequired("name")

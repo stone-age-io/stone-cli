@@ -418,9 +418,11 @@ A blank cell means the relation is unset **or** you cannot read the target.
 Those are deliberately indistinguishable here; `-o json` shows the id either
 way.
 
-**Create and update still take ids.** Relation flags (`--type`, `--location`,
-`--network-id`, …) are unchanged and want a 15-char PocketBase id. Reading is
-where the ids were unreadable; writing is where they are unambiguous.
+**Relation flags take the same keys.** `--type`, `--location`, `--network-id`
+and the other relation flags accept an id or the target's natural key, resolved
+exactly as a positional argument is: `stone thing create --name Probe --location
+hq --type temp-sensor`. The three relations to users (`--owner`, `--user`,
+`--invited-by`) stay id-only, because the CLI has no users entity.
 
 ### Organizations are addressed by code
 
@@ -478,7 +480,7 @@ type is fixed by delete and recreate. Code uniqueness ignores case, so
 hardware, prefer:
 
 ```sh
-./stone thing provision --code gw-01 --name "Gateway 01"     --type <thing_type_id> --location <location_id>     --nats-mode auto     --nebula-mode auto --nebula-network <id> --nebula-ip 10.128.0.42
+./stone thing provision --code gw-01 --name "Gateway 01"     --type gateway --location hq     --nats-mode auto     --nebula-mode auto --nebula-network main --nebula-ip 10.128.0.42
 ```
 
 This wraps the platform's `POST /api/org/things`, which creates the Thing, its
@@ -672,9 +674,6 @@ pins v0.5.0), and `nats-export --allowed-importers` before pb-nats v0.3.3.
 
 ## Limitations
 
-- Relation flags (`--type`, `--location`, …) take 15-char PocketBase ids only —
-  natural-key lookup applies to positional args, not to flags. Discover ids via
-  `stone <type> ls` or `stone <type> get <key> --fields id`.
 - Apply does not delete server records that are missing locally. Use the
   web UI or `stone <type> delete` for that.
 - No JetStream consumer management — the `nats` CLI is better at that.

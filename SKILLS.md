@@ -87,11 +87,11 @@ Verbs `ls / get / create / update / delete / edit` are derived from a single dec
 | string, int, bool | `--name foo`, `--validity-years 5`, `--active` / `--active=false` | |
 | select | `--capability publish` | validated against a whitelist |
 | multiselect | comma-separated list of allowed values | supported by the flag machinery; no entity declares one at present |
-| relation (id) | `--type abc123def456ghi` | **15-char PocketBase id only** — natural keys resolve on positional args, never on relation flags |
-| relation list (ids) | `--operations id1,id2` or repeated flag | |
+| relation | `--type temp-sensor` or `--type abc123def456ghi` | the target's natural key or a 15-char id, resolved like a positional arg; relations to users (`--owner`, `--user`, `--invited-by`) are id-only |
+| relation list | `--operations heartbeat,reboot` or repeated flag | each value resolved the same way |
 | JSON | `--metadata '{"k":"v"}'`, `--metadata @file.json`, `--metadata -` | inline, file, or stdin |
 
-Relation flags deliberately have no name-to-id resolver: discover ids via `stone <type> get <key> --fields id -o json` or `stone <type> ls -o json` first. Note that this is a WRITE-side statement — since v0.5.0 the read side prints relations as codes in table and `get` output, so `-o json` is what you use to get an id back.
+Relation flags take what positional args take: `stone thing create --name Probe --location hq --type temp-sensor`. The key is looked up in the current organization, a code ignores case, and more than one match fails with the candidate ids. `-o json` output still shows relations as ids.
 
 ### Auth-collection ergonomics
 
@@ -118,7 +118,7 @@ type is fixed by delete and recreate. Code uniqueness ignores case, so
 ### Provisioning a device (prefer this over `create` for real hardware)
 
 ```sh
-stone thing provision --code gw-01 --name "Gateway 01"     --type <thing_type_id> --nats-mode auto     --nebula-mode auto --nebula-network <id> --nebula-ip 10.128.0.42
+stone thing provision --code gw-01 --name "Gateway 01"     --type gateway --nats-mode auto     --nebula-mode auto --nebula-network main --nebula-ip 10.128.0.42
 ```
 
 Wraps `POST /api/org/things`: Thing + NATS identity + Nebula host in **one
@@ -305,7 +305,6 @@ Requires a platform on **pb-nebula v0.3.0+**. Against v0.2.0 the routes 404 and 
 
 ## Known limitations
 
-- Relation flags do not resolve names — pass 15-char PocketBase ids only. (Positional record args on `get`/`update`/`delete`/`edit` *do* accept natural keys.)
 - `apply` does not delete server records absent from the workspace.
 - No JetStream **consumer** management (use `nats` CLI).
 - `nats-account` and `nebula-ca` are **operator-only for every field** — both `updateRule`s admit no tenant role, so an owner/admin PATCH of any field on either returns 404. The tenant operations live behind routes: `stone nats account-keys` and `stone nebula ca-rotate`.

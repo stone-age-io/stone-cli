@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/stone-age-io/stone-cli/internal/pb"
@@ -21,13 +22,12 @@ import (
 // the documented way to discover an id, and a pipeline that parses `type` keeps
 // getting a relation id.
 //
-// HOW THE LABEL IS CHOSEN, and why there is no Target field on Field. An
-// expanded record carries its own `collectionName`, so the CLI looks the spec up
-// by that and uses its LookupKey -- the same key `get`/`update`/`delete` accept
-// positionally. That keeps one definition of "the natural key for this entity"
-// instead of a second one written next to each relation flag, and it cannot
-// disagree with the platform about which collection a relation points at,
-// because the server said.
+// HOW THE LABEL IS CHOSEN. An expanded record carries its own `collectionName`,
+// so the CLI looks the spec up by that and uses its LookupKey -- the same key
+// `get`/`update`/`delete` accept positionally. Output does not read Field.Target:
+// the server says which collection a relation points at. Input has no server
+// answer to read yet, which is why Target exists (resolveRelationFlags, below),
+// and the drift test checks it against the schema.
 //
 // WHAT WAS VERIFIED against a live server rather than assumed, because the
 // failure modes here are all silent:
@@ -195,4 +195,60 @@ func relationColumnsForFields(spec EntitySpec, fields string) []string {
 		names = append(names, f.Name)
 	}
 	return relationColumns(spec, names)
+}
+
+// resolveRelationFlags lets a relation flag take what a positional argument
+// takes: `--location hq` as well as `--location <id>`. Each value of a field
+// with a Target goes through resolveRecordID, the function `get`, `update`,
+// `delete` and `edit` already use, so the rules are the same everywhere: an
+// id-shaped value is tried as an id first, then the target's natural key,
+// scoped to the current organization, ignoring case for a code, and refused
+// when it matches more than one record. An empty value is left alone, because
+// it clears the relation.
+//
+// It runs on typed create and update, and `thing provision` calls
+// resolveFlagValue for its own id flags. `apply` and `edit` send ids, the way
+// the server stores them.
+func resolveRelationFlags(client *pb.Client, spec EntitySpec, orgID string, data pb.Record) error {
+	for _, f := range spec.Fields {
+		if f.Target == "" {
+			continue
+		}
+		switch v := data[f.Name].(type) {
+		case string:
+			id, err := resolveFlagValue(client, orgID, f.flagName(), f.Target, v)
+			if err != nil {
+				return err
+			}
+			data[f.Name] = id
+		case []string:
+			ids := make([]string, 0, len(v))
+			for _, s := range v {
+				id, err := resolveFlagValue(client, orgID, f.flagName(), f.Target, s)
+				if err != nil {
+					return err
+				}
+				ids = append(ids, id)
+			}
+			data[f.Name] = ids
+		}
+	}
+	return nil
+}
+
+// resolveFlagValue resolves one flag value against the entity that owns
+// collection. "" stays "".
+func resolveFlagValue(client *pb.Client, orgID, flag, collection, v string) (string, error) {
+	if v == "" {
+		return "", nil
+	}
+	target, ok := specByCollection(collection)
+	if !ok {
+		return "", fmt.Errorf("--%s: no entity for collection %q", flag, collection)
+	}
+	id, err := resolveRecordID(client, target, orgID, v)
+	if err != nil {
+		return "", fmt.Errorf("--%s: %w", flag, err)
+	}
+	return id, nil
 }

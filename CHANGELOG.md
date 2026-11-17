@@ -10,6 +10,21 @@ that period, and this file starts where the versioned releases do.
 
 ## [Unreleased]
 
+### Added
+
+- **Relation flags take natural keys.** `--location hq`, `--type temp-sensor`,
+  `--role-id operators`, `--operations heartbeat,reboot` and every other
+  relation flag accept what a positional argument accepts: an id, or the
+  target's natural key, looked up the same way (`resolveRecordID`: current
+  organization, a code ignores case, more than one match is refused). An id
+  still works and is tried first. This covers typed `create` and `update` and
+  `thing provision`'s `--type`, `--location`, `--nats-user`, `--nats-role`,
+  `--nebula-host` and `--nebula-network`. The relations to users (`--owner`,
+  `--user`, `--invited-by`) stay id-only. Each key costs one lookup request;
+  `-o json` output and `apply` are unchanged.
+- A drift test checks each relation flag's target collection against the
+  vendored platform schema.
+
 ## [0.8.0] - 2026-11-16
 
 **`apply` checks before it writes.** It used to PATCH every field of every file

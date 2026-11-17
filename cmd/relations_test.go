@@ -1,11 +1,87 @@
 package cmd
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/stone-age-io/stone-cli/internal/ctx"
 	"github.com/stone-age-io/stone-cli/internal/pb"
 )
+
+// keyServer answers a list in any collection whose filter names one of keys
+// with that key's id, and nothing else. It records each filter it was sent.
+func keyServer(t *testing.T, keys map[string]string) (*pb.Client, *[]string) {
+	t.Helper()
+	var filters []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/records") {
+			http.NotFound(w, r) // a get by id: not an id here
+			return
+		}
+		filter := r.URL.Query().Get("filter")
+		filters = append(filters, filter)
+		items := []pb.Record{}
+		for key, id := range keys {
+			if strings.Contains(filter, `"`+key+`"`) {
+				items = append(items, pb.Record{"id": id})
+			}
+		}
+		_ = json.NewEncoder(w).Encode(pb.ListResult{Page: 1, TotalPages: 1, Items: items})
+	}))
+	t.Cleanup(srv.Close)
+	return pb.New(ctx.Context{URL: srv.URL, Auth: ctx.AuthSection{Token: "not-a-jwt"}}), &filters
+}
+
+func TestRelationFlagsTakeNaturalKeys(t *testing.T) {
+	client, filters := keyServer(t, map[string]string{
+		"hq":          "loc000000000001",
+		"temp-sensor": "typ000000000001",
+	})
+	spec, _ := specByCollection("things")
+	data := pb.Record{"name": "Probe", "location": "HQ", "type": "temp-sensor", "nebula_host": ""}
+
+	if err := resolveRelationFlags(client, spec, "org000000000001", data); err != nil {
+		t.Fatal(err)
+	}
+	if data["location"] != "loc000000000001" || data["type"] != "typ000000000001" {
+		t.Errorf("got location=%v type=%v, want both resolved to ids", data["location"], data["type"])
+	}
+	if data["nebula_host"] != "" {
+		t.Errorf("an empty flag clears the relation and must stay empty, got %v", data["nebula_host"])
+	}
+	// The same lookup as a positional argument: case-folded code, current org.
+	for _, f := range *filters {
+		if !strings.Contains(f, "org000000000001") {
+			t.Errorf("lookup %q is not scoped to the current organization", f)
+		}
+	}
+}
+
+func TestRelationListFlagResolvesEachValue(t *testing.T) {
+	client, _ := keyServer(t, map[string]string{"heartbeat": "op0000000000001", "reboot": "op0000000000002"})
+	spec, _ := specByCollection("thing_types")
+	data := pb.Record{"operations": []string{"heartbeat", "reboot"}}
+
+	if err := resolveRelationFlags(client, spec, "org000000000001", data); err != nil {
+		t.Fatal(err)
+	}
+	got := data["operations"].([]string)
+	if len(got) != 2 || got[0] != "op0000000000001" || got[1] != "op0000000000002" {
+		t.Errorf("got %v", got)
+	}
+}
+
+func TestRelationFlagNamesTheFlagWhenNothingMatches(t *testing.T) {
+	client, _ := keyServer(t, nil)
+	spec, _ := specByCollection("things")
+	err := resolveRelationFlags(client, spec, "org000000000001", pb.Record{"location": "nowhere"})
+	if err == nil || !strings.Contains(err.Error(), "--location") {
+		t.Errorf("got %v, want an error naming --location", err)
+	}
+}
 
 // Everything this file pins was checked against a running platform first (see
 // the header comment in relations.go). The tests exist because the behaviours

@@ -62,7 +62,7 @@ first for positional readers.
 
 `get` and `ls` take `--fields` (comma-separated) for server-side projection via PocketBase's `fields` query param; on `ls` table output the requested fields become the columns.
 
-Field types `FID`/`FIDs` accept 15-char PocketBase relation ids only. `FJSON` fields accept inline JSON, `@<path>`, or `-` (stdin).
+Field types `FID`/`FIDs` take an id or, when the field has a `Target` (the collection it points at), that entity's natural key: `resolveRelationFlags` (`cmd/relations.go`) sends each value through `resolveRecordID`, the same lookup positional args use, on typed `create` and `update`; `thing provision` does the same for its own id flags via `resolveFlagValue`. Relations to `users` have no `Target` and stay id-only. `TestRelationTargetsMatchThePlatformSchema` checks every `Target` against the vendored schema and fails if a relation to a modelled collection has none. `FJSON` fields accept inline JSON, `@<path>`, or `-` (stdin).
 
 ### Fields the specs deliberately omit
 
@@ -227,10 +227,11 @@ The rules, all of which have a reason that is not obvious:
   `edit` also fetches raw: what it opens in `$EDITOR` is PATCHed back, and a code
   written into a relation field would be sent as one. `pull` likewise — the
   workspace keys on ids.
-- **No `Target` on `Field`.** An expanded record carries its own
+- **Output does not read `Field.Target`.** An expanded record carries its own
   `collectionName`, so the label is looked up by that and uses the spec's
   `LookupKey`. One definition of "the natural key for this entity", and it cannot
-  disagree with the platform about what a relation points at.
+  disagree with the platform about what a relation points at. `Target` is for
+  input only (below).
 - **`organization` expands although no spec declares it**; it is injected from
   the active context, so it has no flag, but `get` still prints it.
 - **`users` has no spec** and falls back to `email`, then `name` — PocketBase
@@ -295,4 +296,4 @@ The matching shape lives in `natsCtxFile` and must stay compatible with both nat
 - New PocketBase endpoint? Extend `internal/pb/client.go`; don't sprinkle `net/http` into command files.
 - New top-level command? Add a file under `cmd/` and wire it in that file's `init()` via `rootCmd.AddCommand(...)`.
 - Org-scoped collections always need their `organization` field set. `ls` filters by it, `create` injects it, `apply` injects it for files missing an id. If you're working with an org-scoped collection by hand, set it explicitly or rely on those code paths.
-- Positional record args (`get`/`update`/`delete`/`edit`) accept the spec's `LookupKey` value as well as an id. Relation flags (`FID`/`FIDs`) still require literal 15-char PB ids — there is no name-to-id lookup for flags; users discover ids via `stone <type> ls`.
+- Positional record args (`get`/`update`/`delete`/`edit`) accept the spec's `LookupKey` value as well as an id. Relation flags with a `Target` accept the same keys. A new relation field to a modelled collection needs a `Target`; the drift test says so.

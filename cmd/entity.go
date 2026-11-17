@@ -52,6 +52,12 @@ type Field struct {
 	Required bool // required on create
 	Help     string
 	Values   []string // for select/multiselect
+	// Target is the collection an FID/FIDs field points at. When it is set, the
+	// flag takes what a positional argument takes -- an id or that entity's
+	// natural key -- and resolveRelationFlags turns it into an id. Empty for a
+	// relation to a collection with no EntitySpec (users), which stays id-only.
+	// TestRelationTargetsMatchThePlatformSchema keeps it honest.
+	Target string
 }
 
 // EntitySpec defines a CRUD-able entity.
@@ -150,12 +156,12 @@ var entitySpecs = []EntitySpec{
 			{Name: "name", Type: FString, Help: "display name"},
 			{Name: "code", Type: FString, Help: "stable short code; omit it and the server generates one under the type's prefix, e.g. CA-9KD-4PX (IMMUTABLE once set)"},
 			{Name: "description", Type: FString, Help: "free-form description"},
-			{Name: "type", Type: FID, Help: "thing_types id (FROZEN once set: fix a wrong type by delete and recreate)"},
-			{Name: "location", Type: FID, Help: "locations id"},
+			{Name: "type", Type: FID, Target: "thing_types", Help: "thing type code or id (FROZEN once set: fix a wrong type by delete and recreate)"},
+			{Name: "location", Type: FID, Target: "locations", Help: "location code or id"},
 			{Name: "metadata", Type: FJSON, Help: "arbitrary JSON metadata"},
 			{Name: "floorplan_position", Type: FJSON, Help: "floorplan placement as JSON (e.g. {\"x\":12,\"y\":34})"},
-			{Name: "nats_user", Type: FID, Help: "nats_users id"},
-			{Name: "nebula_host", Type: FID, Help: "nebula_hosts id"},
+			{Name: "nats_user", Type: FID, Target: "nats_users", Help: "NATS username or nats_users id"},
+			{Name: "nebula_host", Type: FID, Target: "nebula_hosts", Help: "Nebula hostname or nebula_hosts id"},
 			// Not a status label -- setting false decommissions the device in four
 			// places at once (the platform's hooks/active_flag.go): the authRule
 			// blocks new sign-ins, a tokenKey refresh kills the tokens already
@@ -176,8 +182,8 @@ var entitySpecs = []EntitySpec{
 			{Name: "name", Type: FString, Help: "display name"},
 			{Name: "code", Type: FString, Help: "stable short code, ideally the name on the door (RM-204); omit it and the server generates one under the type's prefix (IMMUTABLE once set)"},
 			{Name: "description", Type: FString, Help: "free-form description"},
-			{Name: "type", Type: FID, Help: "location_types id (FROZEN once set: fix a wrong type by delete and recreate)"},
-			{Name: "parent", Type: FID, Help: "parent locations id (for hierarchy)"},
+			{Name: "type", Type: FID, Target: "location_types", Help: "location type code or id (FROZEN once set: fix a wrong type by delete and recreate)"},
+			{Name: "parent", Type: FID, Target: "locations", Help: "parent location code or id (for hierarchy)"},
 			{Name: "coordinates", Type: FJSON, Help: `geo point as JSON: {"lat":<num>,"lon":<num>}`},
 			{Name: "metadata", Type: FJSON, Help: "arbitrary JSON metadata"},
 		},
@@ -210,7 +216,7 @@ var entitySpecs = []EntitySpec{
 			{Name: "prefix", Type: FString, Help: "1-4 capitals (e.g. CA) copied into codes generated for things of this type; must differ from every location-type prefix; changing it affects future codes only"},
 			{Name: "description", Type: FString, Help: "free-form description"},
 			{Name: "subject_prefix", Type: FString, Help: "subject prefix template; blank means {thing_type_code}.{thing}"},
-			{Name: "operations", Type: FIDs, Help: "thing_type_operations ids (comma-separated or repeat flag)"},
+			{Name: "operations", Type: FIDs, Target: "thing_type_operations", Help: "operation names or ids (comma-separated or repeat flag)"},
 			{Name: "metadata_schema", Type: FJSON, Help: "JSON Schema that validates things.metadata for this type (inline JSON, @file, or -)"},
 		},
 	},
@@ -304,13 +310,13 @@ var entitySpecs = []EntitySpec{
 		KeyColumns: []string{"user", "organization", "role"},
 		Fields: []Field{
 			{Name: "user", Type: FID, Required: true, Help: "users id"},
-			{Name: "organization", Type: FID, Required: true, Help: "organizations id"},
+			{Name: "organization", Type: FID, Target: "organizations", Required: true, Help: "organization code, name or id"},
 			{Name: "role", Type: FSelect, Values: []string{"owner", "admin", "member", "viewer", "dashboard"}, Required: true, Help: "membership role"},
 			{Name: "invited_by", Type: FID, Help: "users id of inviter"},
 			// The link decides whose creds_file the member can read, so only
 			// owner/admin may point it somewhere (platform v0.9.0 closed a member
 			// linking itself to a gateway's identity and reading the seed).
-			{Name: "nats_user", Type: FID, Help: "nats_users id linked to this membership (owner/admin choose it; a member can only keep or clear its own)"},
+			{Name: "nats_user", Type: FID, Target: "nats_users", Help: "NATS username or nats_users id linked to this membership (owner/admin choose it; a member can only keep or clear its own)"},
 		},
 	},
 	{
@@ -344,8 +350,8 @@ var entitySpecs = []EntitySpec{
 			{Name: "password", Type: FString, Required: true, Help: "auth password (min 8 chars)"},
 			{Name: "nats_username", Type: FString, Required: true, Help: "NATS username"},
 			{Name: "description", Type: FString, Help: "free-form description"},
-			{Name: "account_id", Type: FID, Required: true, Help: "nats_accounts id"},
-			{Name: "role_id", Type: FID, Required: true, Help: "nats_roles id"},
+			{Name: "account_id", Type: FID, Target: "nats_accounts", Required: true, Help: "NATS account name or id"},
+			{Name: "role_id", Type: FID, Target: "nats_roles", Required: true, Help: "NATS role name or id"},
 			{Name: "bearer_token", Type: FBool, Help: "issue as bearer-token user (no signing)"},
 			// Three levers, and the names mislead -- this is pb-nats v0.2.1 and
 			// later (internal/sync/manager.go, the OnRecordUpdate handler):
@@ -449,7 +455,7 @@ var entitySpecs = []EntitySpec{
 		KeyColumns: []string{"name", "type", "subject", "local_subject"},
 		LookupKey:  "name",
 		Fields: []Field{
-			{Name: "account_id", Type: FID, Required: true, Help: "local nats_accounts id"},
+			{Name: "account_id", Type: FID, Target: "nats_accounts", Required: true, Help: "local NATS account name or id"},
 			{Name: "name", Type: FString, Required: true, Help: "import name"},
 			{Name: "subject", Type: FString, Required: true, Help: "remote subject to import"},
 			{Name: "account", Type: FString, Required: true, Help: "remote account public key"},
@@ -469,7 +475,7 @@ var entitySpecs = []EntitySpec{
 		KeyColumns: []string{"name", "type", "subject", "token_req"},
 		LookupKey:  "name",
 		Fields: []Field{
-			{Name: "account_id", Type: FID, Required: true, Help: "local nats_accounts id"},
+			{Name: "account_id", Type: FID, Target: "nats_accounts", Required: true, Help: "local NATS account name or id"},
 			{Name: "name", Type: FString, Required: true, Help: "export name"},
 			{Name: "subject", Type: FString, Required: true, Help: "subject to expose"},
 			{Name: "type", Type: FSelect, Values: []string{"stream", "service"}, Required: true, Help: "export kind"},
@@ -502,7 +508,7 @@ var entitySpecs = []EntitySpec{
 			{Name: "description", Type: FString, Help: "free-form description"},
 			{Name: "cidr_range", Type: FString, Required: true, Help: "CIDR e.g. 192.168.100.0/24 (fixed once created: the platform refuses a change)"},
 			{Name: "active", Type: FBool, Help: "whether the network is active"},
-			{Name: "ca_id", Type: FID, Required: true, Help: "nebula_ca id"},
+			{Name: "ca_id", Type: FID, Target: "nebula_ca", Required: true, Help: "Nebula CA name or id"},
 		},
 	},
 	{
@@ -517,7 +523,7 @@ var entitySpecs = []EntitySpec{
 			{Name: "password", Type: FString, Required: true, Help: "auth password (min 8 chars)"},
 			{Name: "hostname", Type: FString, Required: true, Help: "host hostname (unique)"},
 			{Name: "overlay_ip", Type: FString, Required: true, Help: "Nebula overlay IP within the network's CIDR"},
-			{Name: "network_id", Type: FID, Required: true, Help: "nebula_networks id"},
+			{Name: "network_id", Type: FID, Target: "nebula_networks", Required: true, Help: "Nebula network name or id"},
 			{Name: "groups", Type: FJSON, Help: "Nebula firewall groups (JSON array)"},
 			{Name: "is_lighthouse", Type: FBool, Help: "whether this host is a lighthouse"},
 			{Name: "is_relay", Type: FBool, Help: "forward traffic for peers that cannot reach each other directly (needs --public-host-port)"},
@@ -939,6 +945,9 @@ func buildCreateCmd(spec EntitySpec) *cobra.Command {
 				}
 			}
 			client := newPBClient(c)
+			if err := resolveRelationFlags(client, spec, c.CurrentOrganization, data); err != nil {
+				return err
+			}
 			r, err := client.Create(spec.Collection, data)
 			if err != nil {
 				return err
@@ -981,6 +990,9 @@ func buildUpdateCmd(spec EntitySpec) *cobra.Command {
 			client := newPBClient(c)
 			id, err := resolveRecordID(client, spec, c.CurrentOrganization, args[0])
 			if err != nil {
+				return err
+			}
+			if err := resolveRelationFlags(client, spec, c.CurrentOrganization, data); err != nil {
 				return err
 			}
 			r, err := client.Update(spec.Collection, id, data)
