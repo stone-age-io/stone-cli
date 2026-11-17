@@ -94,7 +94,7 @@ var deliberatelyOmitted = map[string][]string{
 
 	// Secret material and server-derived state. The credential itself is
 	// readable by the identity that owns it, but nothing types it in.
-	"nats_users":   {"public_key", "private_key", "seed", "jwt", "creds_file"},
+	"nats_users": {"public_key", "private_key", "seed", "jwt", "creds_file"},
 	"nebula_hosts": {"certificate", "private_key", "ca_certificate", "config_yaml", "expires_at",
 		// pb-nebula (v0.6.0+) moves a certificate here when the host stops
 		// holding it, and builds every peer's pki.blocklist from both lists.

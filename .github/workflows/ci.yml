@@ -1,9 +1,11 @@
 # Ordinary build hygiene on every push and pull request.
 #
-# There are no tests in this repo yet; `go test ./...` is here anyway so that the
-# first one added is run rather than merely committed. The build step is what
-# currently catches breakage, and it is a real check for a CLI whose command
-# table is hand-maintained.
+# `go test` includes the schema drift guard, which checks the hand-maintained
+# command table against the vendored platform schema.
+#
+# On a Windows checkout with CRLF line endings, `gofmt -l .` lists files that
+# are fine here, which makes a real formatting error easy to dismiss. Check the
+# committed content instead: `git show HEAD:<file> | gofmt -l`.
 name: CI
 
 on:
