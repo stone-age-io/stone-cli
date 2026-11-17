@@ -91,7 +91,7 @@ Verbs `ls / get / create / update / delete / edit` are derived from a single dec
 | relation list | `--operations heartbeat,reboot` or repeated flag | each value resolved the same way |
 | JSON | `--metadata '{"k":"v"}'`, `--metadata @file.json`, `--metadata -` | inline, file, or stdin |
 
-Relation flags take what positional args take: `stone thing create --name Probe --location hq --type temp-sensor`. The key is looked up in the current organization, a code ignores case, and more than one match fails with the candidate ids. `-o json` output still shows relations as ids.
+Relation flags take what positional args take: `stone thing provision --name Probe --location hq --type temp-sensor`. The key is looked up in the current organization, a code ignores case, and more than one match fails with the candidate ids. `-o json` output still shows relations as ids.
 
 ### Auth-collection ergonomics
 

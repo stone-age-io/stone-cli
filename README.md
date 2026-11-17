@@ -420,8 +420,8 @@ way.
 
 **Relation flags take the same keys.** `--type`, `--location`, `--network-id`
 and the other relation flags accept an id or the target's natural key, resolved
-exactly as a positional argument is: `stone thing create --name Probe --location
-hq --type temp-sensor`. The three relations to users (`--owner`, `--user`,
+exactly as a positional argument is: `stone thing provision --name Probe
+--location hq --type temp-sensor`. The three relations to users (`--owner`, `--user`,
 `--invited-by`) stay id-only, because the CLI has no users entity.
 
 ### Organizations are addressed by code
