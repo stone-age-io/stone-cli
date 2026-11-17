@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -13,6 +14,9 @@ import (
 	"github.com/stone-age-io/stone-cli/internal/ctx"
 	"github.com/stone-age-io/stone-cli/internal/pb"
 )
+
+// fakeUpdated is the `updated` the fake answers every write with.
+const fakeUpdated = "2026-11-16 12:00:00.000Z"
 
 // fakePB serves one collection's list and records every batch op it is sent.
 // Creates get ids "new000000000001", "new000000000002", ...
@@ -37,7 +41,7 @@ func (f *fakePB) client(t *testing.T) *pb.Client {
 			_, _ = w.Write([]byte(f.batchBody))
 		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/records"):
 			f.singles++
-			_ = json.NewEncoder(w).Encode(map[string]any{"id": "one00000000000" + string(rune('0'+f.singles))})
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": "one00000000000" + string(rune('0'+f.singles)), "updated": fakeUpdated})
 		case r.Method == http.MethodPost && r.URL.Path == "/api/batch":
 			var body struct {
 				Requests []pb.BatchOp `json:"requests"`
@@ -49,7 +53,10 @@ func (f *fakePB) client(t *testing.T) *pb.Client {
 			for _, op := range body.Requests {
 				f.sent = append(f.sent, op)
 				id := "new" + strings.Repeat("0", 11) + string(rune('0'+len(f.sent)))
-				out = append(out, map[string]any{"status": 200, "body": map[string]any{"id": id}})
+				if op.Method == "PATCH" {
+					id = path.Base(op.URL)
+				}
+				out = append(out, map[string]any{"status": 200, "body": map[string]any{"id": id, "updated": fakeUpdated}})
 			}
 			_ = json.NewEncoder(w).Encode(out)
 		default:
@@ -76,8 +83,47 @@ func loadApplyFile(t *testing.T, path string) applyFile {
 	if err != nil {
 		t.Fatal(err)
 	}
+	updated, _ := rec["updated"].(string)
+	pb.Strip(rec)
 	id, _ := rec["id"].(string)
-	return applyFile{Path: path, Collection: filepath.Base(filepath.Dir(path)), Record: rec, ID: id}
+	return applyFile{Path: path, Collection: filepath.Base(filepath.Dir(path)), Record: rec, ID: id, Updated: updated}
+}
+
+// A file whose `updated` is not the server's has fallen behind the record:
+// something changed it after the pull. If the file has something to send, it
+// is reported as stale. If it has nothing to send, or carries no `updated`, it
+// is not.
+func TestApplyReportsStaleFiles(t *testing.T) {
+	const pulled, later = "2026-11-01 09:00:00.000Z", "2026-11-02 09:00:00.000Z"
+	fake := &fakePB{records: []pb.Record{
+		{"id": "aaaaaaaaaaaaaaa", "code": "T-1", "name": "one", "updated": later},
+		{"id": "bbbbbbbbbbbbbbb", "code": "T-2", "name": "two", "updated": later},
+		{"id": "ccccccccccccccc", "code": "T-3", "name": "three", "updated": later},
+		{"id": "ddddddddddddddd", "code": "T-4", "name": "four", "updated": pulled},
+	}}
+	client := fake.client(t)
+	dir := filepath.Join(t.TempDir(), "things")
+	writeFile(t, filepath.Join(dir, "T-1.yaml"), "id: aaaaaaaaaaaaaaa\nname: edited\nupdated: "+pulled+"\n") // stale
+	writeFile(t, filepath.Join(dir, "T-2.yaml"), "id: bbbbbbbbbbbbbbb\nname: two\nupdated: "+pulled+"\n")    // behind, but sends nothing
+	writeFile(t, filepath.Join(dir, "T-3.yaml"), "id: ccccccccccccccc\nname: edited\n")                      // no updated: unchecked
+	writeFile(t, filepath.Join(dir, "T-4.yaml"), "id: ddddddddddddddd\nname: edited\nupdated: "+pulled+"\n") // current
+	var files []applyFile
+	for _, n := range []string{"T-1", "T-2", "T-3", "T-4"} {
+		files = append(files, loadApplyFile(t, filepath.Join(dir, n+".yaml")))
+	}
+	changed, stale, err := diffUpdates(client, "things", files, []int{0, 1, 2, 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(changed, []int{0, 2, 3}) {
+		t.Fatalf("changed = %v", changed)
+	}
+	if len(stale) != 1 || !strings.Contains(stale[0], "T-1.yaml") {
+		t.Fatalf("stale = %q, want only T-1.yaml", stale)
+	}
+	if _, ok := files[0].Patch["updated"]; ok {
+		t.Fatal("updated must never be sent")
+	}
 }
 
 // An update sends only the keys that differ from the server, and a record that
@@ -97,7 +143,7 @@ func TestApplyUpdatesSendOnlyWhatChanged(t *testing.T) {
 		loadApplyFile(t, filepath.Join(dir, "T-2.json")),
 	}
 
-	changed, err := diffUpdates(client, "things", files, []int{0, 1})
+	changed, _, err := diffUpdates(client, "things", files, []int{0, 1})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +171,7 @@ func TestApplyUpdateOfAMissingRecordSendsEverything(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "things", "T-9.yaml")
 	writeFile(t, path, "id: zzzzzzzzzzzzzzz\ncode: T-9\n")
 	files := []applyFile{loadApplyFile(t, path)}
-	changed, err := diffUpdates(client, "things", files, []int{0})
+	changed, _, err := diffUpdates(client, "things", files, []int{0})
 	if err != nil {
 		t.Fatal(err)
 	}

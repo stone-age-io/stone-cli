@@ -10,7 +10,21 @@ that period, and this file starts where the versioned releases do.
 
 ## [Unreleased]
 
+### Upgrading
+
+- **Pull again** to turn on stale-file checking for an existing workspace.
+  Files pulled by an earlier `stone` have no `updated` and are not checked.
+  Commit first: pull overwrites your files.
+
 ### Added
+
+- `stone apply` refuses files older than the record on the server. `pull` now
+  keeps each record's `updated` time, and when a file has something to send
+  but its `updated` is not the server's, someone changed the record after the
+  pull: sending the file would put back the old value of every field it did
+  not mean to change. Apply lists those files and sends nothing. `--force`
+  sends them anyway. After each create or update, apply writes the new
+  `updated` back into the file, which drops comments in it.
 
 - `stone apply --dry-run` prints what would be created, and which fields of
   which records would be updated, without sending anything.
@@ -20,8 +34,8 @@ that period, and this file starts where the versioned releases do.
 
 - `apply` compares each update with the server and sends only the fields that
   differ, the way `edit` does. An unchanged record is not sent, so it no longer
-  bumps `updated` or fires the platform's hooks on every run. This does not
-  detect conflicts: a stale value in a file is still sent.
+  bumps `updated` or fires the platform's hooks on every run. (Stale values
+  are caught by the `updated` check under Added.)
 - `apply` refuses, before sending anything, a workspace holding records of an
   organization other than the current one. `pull` never clears a workspace, so
   a second organization pulled into the same directory was applied too. Pass

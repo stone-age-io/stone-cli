@@ -232,6 +232,25 @@ the record again). Apply is safe to re-run.
 `stone apply --dry-run` prints what would be created, and which fields of which
 records would be updated, without sending anything.
 
+**Stale files are refused.** Each pulled file keeps the record's `updated`
+time. If someone changes the record after your pull, the server's `updated`
+moves on, and an `apply` of that file would put back the old values of every
+field you didn't touch. So when a file has something to send and its `updated`
+is not the server's, `apply` lists it and sends nothing at all:
+
+```text
+1 file(s) are older than the record on the server; nothing was sent.
+  my-workspace/things/sensor-42.yaml (file: 2026-11-01 09:00:00.000Z, server: 2026-11-02 14:12:09.511Z)
+```
+
+Commit your edits, `stone pull`, put your changes back from `git diff`, and
+apply again — or pass `--force` to overwrite the server's change. After each
+create or update, `apply` writes the record's new `updated` (and a new record's
+id) back into its file; that rewrite drops any comments in the file. A file
+with no `updated` — hand-written, or pulled by an older `stone` — is not
+checked; pull again to start checking it. The check and the write are two
+requests, so a change landing in the instant between them is still overwritten.
+
 Files in a directory that is not a collection (`thing/` for `things/`, or a
 nested `things/old/`) are skipped with a `skip` line on stderr. A record whose
 `organization` is not the current organization stops apply before anything is
@@ -304,12 +323,10 @@ unasked.
 **What you get and what you don't.** Apply creates and updates; it never
 deletes, and it has no control loop. So the workspace is a snapshot from your
 last `pull` plus your edits — not a live mirror of the server. A record someone
-created in the console won't be in your workspace until you pull again, and two
-people applying different edits to the same record will not conflict: the last
-apply wins, field by field, silently. Comparing with the server does not change
-that: apply cannot tell a field you edited from one the server changed after
-your pull, so it sends both. If a workspace is shared, `pull` before
-`apply` the way you'd `git pull` before pushing.
+created in the console won't be in your workspace until you pull again. Two
+people applying different edits to the same record do conflict: the second
+`apply` is refused as stale (see above) until they pull, the way `git push` is
+refused until you `git pull`.
 
 ## Entities supported by typed CRUD
 

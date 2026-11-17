@@ -75,8 +75,8 @@ func TestApplyCommand(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if back["id"] != "new000000000001" {
-		t.Fatalf("T-3.yaml id = %v, want the created id written back", back["id"])
+	if back["id"] != "new000000000001" || back["updated"] != fakeUpdated {
+		t.Fatalf("T-3.yaml id = %v updated = %v, want both written back", back["id"], back["updated"])
 	}
 
 	// Run again: the created record now has an id, so the second apply must
@@ -118,5 +118,82 @@ func TestApplyCommandStopsOnAnotherOrganization(t *testing.T) {
 	}
 	if len(fake.sent) != 0 {
 		t.Fatalf("sent %+v before refusing", fake.sent)
+	}
+}
+
+// A file older than its record is refused before anything is sent -- the
+// create beside it included -- and --force sends it anyway. Either way the
+// record's new `updated` lands in the file, so the next apply is not refused
+// for the change apply itself just made.
+func TestApplyCommandRefusesStaleFiles(t *testing.T) {
+	const pulled, later = "2026-11-01 09:00:00.000Z", "2026-11-02 09:00:00.000Z"
+	fake, ws, run := applyWorkspace(t, nil)
+	fake.records[0]["updated"] = later
+	t1 := filepath.Join(ws, "things", "T-1.yaml")
+	writeFile(t, t1, "id: aaaaaaaaaaaaaaa\norganization: "+orgA+"\ncode: T-1\nname: renamed\nupdated: "+pulled+"\n")
+
+	err := run()
+	if err == nil || !strings.Contains(err.Error(), "T-1.yaml") || !strings.Contains(err.Error(), later) {
+		t.Fatalf("err = %v, want T-1.yaml named with the server's time", err)
+	}
+	if len(fake.sent) != 0 {
+		t.Fatalf("sent %+v before refusing", fake.sent)
+	}
+
+	if err := applyCmd.Flags().Set("force", "true"); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = applyCmd.Flags().Set("force", "false") })
+	if err := run(); err != nil {
+		t.Fatal(err)
+	}
+	var patched bool
+	for _, op := range fake.sent {
+		patched = patched || (op.Method == "PATCH" && strings.HasSuffix(op.URL, "/aaaaaaaaaaaaaaa"))
+		if _, ok := op.Body["updated"]; ok {
+			t.Fatalf("sent updated in %+v", op)
+		}
+	}
+	if !patched {
+		t.Fatalf("--force did not send T-1: %+v", fake.sent)
+	}
+	back, err := pb.UnmarshalFile(t1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if back["updated"] != fakeUpdated {
+		t.Fatalf("T-1.yaml updated = %v, want the server's new %s", back["updated"], fakeUpdated)
+	}
+}
+
+// pull keeps `updated` -- the one server-only field a workspace needs -- and
+// still drops the rest.
+func TestPullKeepsUpdated(t *testing.T) {
+	fake, ws, _ := applyWorkspace(t, nil)
+	c, err := ctx.Load("e2e")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.Auth.Collection = "_superusers" // an operator: pull asks nothing about the caller
+	if err := ctx.Save(c); err != nil {
+		t.Fatal(err)
+	}
+	fake.records[0]["updated"] = "2026-11-02 09:00:00.000Z"
+	fake.records[0]["created"] = "2026-11-01 09:00:00.000Z"
+	fake.records[0]["collectionId"] = "pbc_123"
+	if err := runPull(pullCmd, []string{"things"}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := pb.UnmarshalFile(filepath.Join(ws, "things", "T-1.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got["updated"] != "2026-11-02 09:00:00.000Z" {
+		t.Fatalf("updated = %v", got["updated"])
+	}
+	for _, k := range []string{"created", "collectionId"} {
+		if _, ok := got[k]; ok {
+			t.Fatalf("pull wrote %s", k)
+		}
 	}
 }

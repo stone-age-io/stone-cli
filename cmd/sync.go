@@ -26,6 +26,8 @@ named by the record's natural key (code, name, hostname, ...; falls back to id).
 Org-scoped collections, and memberships, are filtered to the current
 organization. organizations, nats_accounts and nebula_ca are pulled only for a
 Platform Operator, because only an operator can apply them back.
+Each file keeps the record's "updated" time, which apply uses to refuse a file
+the server has changed since. Pull overwrites files: commit edits first.
 Pass collection names to limit; otherwise all known collections are pulled.`,
 	RunE: runPull,
 }
@@ -42,6 +44,13 @@ the fields that differ; unchanged records are not sent. Records without an id
 are created and the returned id is written back into the file. Apply is safe
 to re-run. --dry-run prints what would be sent without sending it.
 
+A file keeps the record's "updated" time from the last pull or apply. If the
+server's record has changed since then, apply refuses that file and sends
+nothing, because the file's other values would overwrite the newer ones.
+Commit your edits, pull, and resolve with git; or pass --force to send anyway.
+After each create or update, apply writes the new id and "updated" back into
+the file (which drops any comments in it).
+
 Files in a directory that is not a collection are skipped with a note. A
 record whose organization is not the current one stops the whole apply before
 anything is sent, unless --any-org is given.`,
@@ -54,6 +63,7 @@ func init() {
 	applyCmd.Flags().String("workspace", "", "workspace directory (default: context's workspace, then cwd)")
 	applyCmd.Flags().Bool("dry-run", false, "print what would be created and updated (and which fields) without sending it")
 	applyCmd.Flags().Bool("any-org", false, "apply records that belong to organizations other than the current one")
+	applyCmd.Flags().Bool("force", false, "send records the server has changed since the file was pulled, overwriting those changes")
 	rootCmd.AddCommand(pullCmd, applyCmd)
 }
 
@@ -140,7 +150,14 @@ func runPull(cmd *cobra.Command, args []string) error {
 		omitted := false
 		used := map[string]bool{}
 		for _, r := range items {
+			// updated is the one server-only field a workspace keeps: apply
+			// compares it with the server's to refuse a file that is older
+			// than the record (see checkStale).
+			updated := r["updated"]
 			pb.Strip(r)
+			if updated != nil {
+				r["updated"] = updated
+			}
 			if stripWorkspaceFields(spec.Collection, r) {
 				omitted = true
 			}
@@ -355,6 +372,7 @@ type applyFile struct {
 	Collection string
 	Record     pb.Record
 	ID         string    // empty for create
+	Updated    string    // the record's `updated` when the file was last pulled or applied; empty = no check
 	Patch      pb.Record // update only: the keys that differ from the server
 }
 
@@ -377,6 +395,7 @@ func runApply(cmd *cobra.Command, args []string) error {
 	}
 	dryRun, _ := cmd.Flags().GetBool("dry-run")
 	anyOrg, _ := cmd.Flags().GetBool("any-org")
+	force, _ := cmd.Flags().GetBool("force")
 
 	// Only the collections pull writes. A directory named after a read-only
 	// entity is left where it is rather than sent: apply would PATCH records
@@ -424,9 +443,10 @@ func runApply(cmd *cobra.Command, args []string) error {
 			if err != nil {
 				return err
 			}
+			updated, _ := rec["updated"].(string)
 			pb.Strip(rec)
 			id, _ := rec["id"].(string)
-			files = append(files, applyFile{Path: path, Ext: ext, Collection: coll, Record: rec, ID: id})
+			files = append(files, applyFile{Path: path, Ext: ext, Collection: coll, Record: rec, ID: id, Updated: updated})
 			return nil
 		})
 		if err != nil {
@@ -470,17 +490,25 @@ func runApply(cmd *cobra.Command, args []string) error {
 	// not PATCHed at all. A blind PATCH still bumps `updated` and fires the
 	// platform's hooks on every record in the workspace.
 	unchanged := 0
+	var stale []string
 	for _, s := range entitySpecs {
 		idxs := updates[s.Collection]
 		if len(idxs) == 0 {
 			continue
 		}
-		changed, err := diffUpdates(client, s.Collection, files, idxs)
+		changed, st, err := diffUpdates(client, s.Collection, files, idxs)
 		if err != nil {
 			return err
 		}
 		unchanged += len(idxs) - len(changed)
 		updates[s.Collection] = changed
+		stale = append(stale, st...)
+	}
+	if len(stale) > 0 && !force {
+		return fmt.Errorf("%d file(s) are older than the record on the server; nothing was sent.\n%s\n"+
+			"their other fields would overwrite the newer values. Commit your edits, run `stone pull`,\n"+
+			"and use `git diff` to put your changes back; or pass --force to overwrite the server",
+			len(stale), strings.Join(stale, "\n"))
 	}
 
 	if dryRun {
@@ -551,14 +579,24 @@ func checkOrganizations(files []applyFile, specs map[string]EntitySpec, current 
 // to send. Both sides go through the same YAML round trip editPatch's caller
 // uses, so a JSON float and a YAML int of the same number compare equal.
 //
+// It also returns, as printable lines, the files that are stale: they have
+// something to send, and the server's `updated` is not the one the file
+// recorded, so the record changed after the file was pulled or last applied.
+// Diffing alone cannot tell that apart from an edit -- a stale value differs
+// from the server exactly as a new one does -- and sending it would undo the
+// newer change. A file with no `updated` (hand-written, or pulled by an older
+// stone) is not checked. Nor is one with nothing to send: it overwrites nothing.
+//
+// The check and the PATCH are two requests, so a write landing between them
+// is still overwritten. PocketBase has no conditional update to close that.
+//
 // A record the listing does not contain (deleted since the pull, or not
 // visible) keeps its whole body, so the PATCH reports whatever the server
-// says about it. This does not detect a server that changed since the pull:
-// a stale value in a file differs from the server and is sent like any edit.
-func diffUpdates(client *pb.Client, coll string, files []applyFile, idxs []int) ([]int, error) {
+// says about it.
+func diffUpdates(client *pb.Client, coll string, files []applyFile, idxs []int) (changed []int, stale []string, err error) {
 	items, err := client.ListAll(coll, pb.ListOptions{})
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", coll, err)
+		return nil, nil, fmt.Errorf("%s: %w", coll, err)
 	}
 	server := make(map[string]pb.Record, len(items))
 	for _, r := range items {
@@ -566,12 +604,11 @@ func diffUpdates(client *pb.Client, coll string, files []applyFile, idxs []int) 
 			server[id] = r
 		}
 	}
-	var changed []int
 	for _, i := range idxs {
 		f := &files[i]
 		local, err := yamlRoundTrip(f.Record)
 		if err != nil {
-			return nil, fmt.Errorf("%s: %w", f.Path, err)
+			return nil, nil, fmt.Errorf("%s: %w", f.Path, err)
 		}
 		cur, ok := server[f.ID]
 		if !ok {
@@ -581,13 +618,17 @@ func diffUpdates(client *pb.Client, coll string, files []applyFile, idxs []int) 
 		}
 		remote, err := yamlRoundTrip(cur)
 		if err != nil {
-			return nil, fmt.Errorf("%s: %w", f.Path, err)
+			return nil, nil, fmt.Errorf("%s: %w", f.Path, err)
 		}
-		if f.Patch = editPatch(remote, local); len(f.Patch) > 0 {
-			changed = append(changed, i)
+		if f.Patch = editPatch(remote, local); len(f.Patch) == 0 {
+			continue
+		}
+		changed = append(changed, i)
+		if now, _ := cur["updated"].(string); f.Updated != "" && now != f.Updated {
+			stale = append(stale, fmt.Sprintf("  %s (file: %s, server: %s)", f.Path, f.Updated, now))
 		}
 	}
-	return changed, nil
+	return changed, stale, nil
 }
 
 func yamlRoundTrip(r pb.Record) (pb.Record, error) {
@@ -611,22 +652,43 @@ func sortedKeys(r pb.Record) []string {
 	return keys
 }
 
-// recordCreated writes the server-assigned id back into the file. If that
-// fails, the record exists but the file does not say so, and the next apply
-// would create it a second time -- so it counts as a failure and says what to
-// do about it.
-func recordCreated(f *applyFile, id string) bool {
+// recordCreated writes the server-assigned id, and the record's `updated`,
+// back into the file. If that fails, the record exists but the file does not
+// say so, and the next apply would create it a second time -- so it counts as a
+// failure and says what to do about it.
+func recordCreated(f *applyFile, rec pb.Record) bool {
+	id, _ := rec["id"].(string)
 	if id == "" {
 		fmt.Fprintf(os.Stderr, "failed   %s: created, but the server returned no id; find it with `ls` and add \"id: <id>\" to the file, or the next apply creates it again\n", f.name())
 		return false
 	}
 	f.Record["id"] = id
+	if updated, _ := rec["updated"].(string); updated != "" {
+		f.Record["updated"] = updated
+	}
 	if err := pb.MarshalFile(f.Path, f.Record); err != nil {
 		fmt.Fprintf(os.Stderr, "failed   %s: created as %s, but could not write the id back (%v); add \"id: %s\" to the file, or the next apply creates it again\n", f.name(), id, err, id)
 		return false
 	}
 	fmt.Printf("created  %s -> %s\n", f.name(), id)
 	return true
+}
+
+// recordUpdated writes the record's new `updated` back into the file, so the
+// next apply does not take the file's own change for someone else's. If that
+// fails the update still stands; the next apply of this file is refused as
+// stale until it is pulled again, which is the safe direction, so it is a
+// warning rather than a failure.
+func recordUpdated(f *applyFile, rec pb.Record) {
+	fmt.Printf("updated  %s (%s)\n", f.name(), strings.Join(sortedKeys(f.Patch), ", "))
+	updated, _ := rec["updated"].(string)
+	if updated == "" {
+		return
+	}
+	f.Record["updated"] = updated
+	if err := pb.MarshalFile(f.Path, f.Record); err != nil {
+		fmt.Fprintf(os.Stderr, "warning  %s: updated, but could not record the new updated time in the file (%v); pull it before applying it again\n", f.name(), err)
+	}
 }
 
 // batchRejected reports whether PocketBase itself answered a batch with an
@@ -675,8 +737,7 @@ func applyCreates(client *pb.Client, coll string, files []applyFile, idxs []int)
 		for j, item := range items {
 			var rec pb.Record
 			_ = json.Unmarshal(item.Body, &rec)
-			id, _ := rec["id"].(string)
-			if recordCreated(&files[chunk[j]], id) {
+			if recordCreated(&files[chunk[j]], rec) {
 				ok++
 			} else {
 				failed++
@@ -708,8 +769,10 @@ func applyUpdates(client *pb.Client, coll string, files []applyFile, idxs []int)
 			failed += f
 			continue
 		}
-		for _, i := range chunk {
-			fmt.Printf("updated  %s (%s)\n", files[i].name(), strings.Join(sortedKeys(files[i].Patch), ", "))
+		for j, item := range items {
+			var rec pb.Record
+			_ = json.Unmarshal(item.Body, &rec)
+			recordUpdated(&files[chunk[j]], rec)
 			ok++
 		}
 	}
@@ -725,8 +788,7 @@ func perOpCreate(client *pb.Client, coll string, files []applyFile, idxs []int) 
 			failed++
 			continue
 		}
-		id, _ := r["id"].(string)
-		if recordCreated(&files[i], id) {
+		if recordCreated(&files[i], r) {
 			ok++
 		} else {
 			failed++
@@ -738,12 +800,13 @@ func perOpCreate(client *pb.Client, coll string, files []applyFile, idxs []int) 
 func perOpUpdate(client *pb.Client, coll string, files []applyFile, idxs []int) (int, int) {
 	var ok, failed int
 	for _, i := range idxs {
-		if _, err := client.Update(coll, files[i].ID, files[i].Patch); err != nil {
+		r, err := client.Update(coll, files[i].ID, files[i].Patch)
+		if err != nil {
 			fmt.Fprintf(os.Stderr, "failed   %s: %v\n", files[i].name(), err)
 			failed++
 			continue
 		}
-		fmt.Printf("updated  %s (%s)\n", files[i].name(), strings.Join(sortedKeys(files[i].Patch), ", "))
+		recordUpdated(&files[i], r)
 		ok++
 	}
 	return ok, failed
