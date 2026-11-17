@@ -243,6 +243,12 @@ default, and when a batch is refused or one of its records fails, `apply`
 re-sends that batch one record at a time so it can name the record that failed.
 Records before a failure stay applied. Fix the file and run `apply` again.
 
+The one exception is a batch of creates whose outcome is unknown — a timeout,
+a dropped connection, a proxy error page. PocketBase may have committed it, so
+`apply` does not re-send it (that would create every record twice). It lists
+the files instead: check with `stone <collection> ls`, add the ids of any that
+were created, then run `apply` again.
+
 For diff/status/history, put the workspace in `git`.
 
 **Credentials are not written to the workspace.** PocketBase withholds the

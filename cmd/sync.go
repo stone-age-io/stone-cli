@@ -629,6 +629,17 @@ func recordCreated(f *applyFile, id string) bool {
 	return true
 }
 
+// batchRejected reports whether PocketBase itself answered a batch with an
+// error. It runs a batch in one transaction, so a refusal (including batch
+// requests being turned off) means nothing was written and the records can be
+// re-sent one at a time. Anything else -- a timeout, a dropped connection, a
+// proxy's 502 page, a 200 that would not decode -- leaves it unknown whether
+// the batch committed.
+func batchRejected(err error) bool {
+	var pe *pb.PBError
+	return errors.As(err, &pe)
+}
+
 func applyCreates(client *pb.Client, coll string, files []applyFile, idxs []int) (int, int) {
 	var ok, failed int
 	for start := 0; start < len(idxs); start += batchSize {
@@ -643,8 +654,19 @@ func applyCreates(client *pb.Client, coll string, files []applyFile, idxs []int)
 			})
 		}
 		items, err := client.Batch(ops)
+		if err != nil && !batchRejected(err) {
+			// Re-sending would create the chunk twice if it did commit.
+			fmt.Fprintf(os.Stderr, "failed   batch of %d %s creates: %v\n", len(chunk), coll, err)
+			fmt.Fprintf(os.Stderr, "         the server may have created them anyway; check `stone %s ls` before re-running apply:\n", coll)
+			for _, i := range chunk {
+				fmt.Fprintf(os.Stderr, "           %s\n", files[i].Path)
+			}
+			failed += len(chunk)
+			continue
+		}
 		if err != nil || hasBatchError(items) {
-			// Fall back to per-op to identify offenders.
+			// PocketBase refused the batch and rolled it back, so nothing was
+			// written: re-send one at a time to name the offender.
 			o, f := perOpCreate(client, coll, files, chunk)
 			ok += o
 			failed += f
@@ -679,6 +701,8 @@ func applyUpdates(client *pb.Client, coll string, files []applyFile, idxs []int)
 		}
 		items, err := client.Batch(ops)
 		if err != nil || hasBatchError(items) {
+			// Unlike a create, re-sending a PATCH that may already have
+			// committed is harmless, so any error falls back.
 			o, f := perOpUpdate(client, coll, files, chunk)
 			ok += o
 			failed += f

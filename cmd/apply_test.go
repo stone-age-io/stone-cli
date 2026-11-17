@@ -19,6 +19,11 @@ import (
 type fakePB struct {
 	records []pb.Record
 	sent    []pb.BatchOp
+	// When batchStatus is set, /api/batch answers with it and batchBody
+	// instead of applying anything.
+	batchStatus int
+	batchBody   string
+	singles     int // creates sent one at a time
 }
 
 func (f *fakePB) client(t *testing.T) *pb.Client {
@@ -27,6 +32,12 @@ func (f *fakePB) client(t *testing.T) *pb.Client {
 		switch {
 		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/records"):
 			_ = json.NewEncoder(w).Encode(pb.ListResult{Page: 1, TotalPages: 1, Items: f.records})
+		case r.Method == http.MethodPost && r.URL.Path == "/api/batch" && f.batchStatus != 0:
+			w.WriteHeader(f.batchStatus)
+			_, _ = w.Write([]byte(f.batchBody))
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/records"):
+			f.singles++
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": "one00000000000" + string(rune('0'+f.singles))})
 		case r.Method == http.MethodPost && r.URL.Path == "/api/batch":
 			var body struct {
 				Requests []pb.BatchOp `json:"requests"`
@@ -171,5 +182,38 @@ func TestApplyRefusesRecordsOfAnotherOrganization(t *testing.T) {
 	err := checkOrganizations(files, specs, "orgA00000000000")
 	if err == nil || !strings.Contains(err.Error(), "memberships/m.yaml") || strings.Contains(err.Error(), "things/a.yaml") {
 		t.Fatalf("err = %v, want only the other org's membership named", err)
+	}
+}
+
+// When PocketBase refuses a batch it rolled it back, so the creates are re-sent
+// one at a time. When the outcome is unknown -- here a proxy's 502 page -- they
+// are not re-sent, because the batch may have committed and a second POST
+// would create every record twice.
+func TestApplyCreatesFallBackOnlyWhenPocketBaseRefused(t *testing.T) {
+	for _, tc := range []struct {
+		name, body  string
+		status      int
+		wantSingles int
+		wantOK      int
+	}{
+		{"batch turned off", `{"status":403,"message":"Batch requests are not allowed."}`, 403, 2, 2},
+		{"proxy error", `<html>Bad Gateway</html>`, 502, 0, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fake := &fakePB{batchStatus: tc.status, batchBody: tc.body}
+			client := fake.client(t)
+			dir := filepath.Join(t.TempDir(), "things")
+			writeFile(t, filepath.Join(dir, "a.yaml"), "code: A\n")
+			writeFile(t, filepath.Join(dir, "b.yaml"), "code: B\n")
+			files := []applyFile{
+				loadApplyFile(t, filepath.Join(dir, "a.yaml")),
+				loadApplyFile(t, filepath.Join(dir, "b.yaml")),
+			}
+			ok, failed := applyCreates(client, "things", files, []int{0, 1})
+			if fake.singles != tc.wantSingles || ok != tc.wantOK || ok+failed != 2 {
+				t.Fatalf("singles=%d ok=%d failed=%d, want singles=%d ok=%d",
+					fake.singles, ok, failed, tc.wantSingles, tc.wantOK)
+			}
+		})
 	}
 }

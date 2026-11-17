@@ -36,6 +36,11 @@ that period, and this file starts where the versioned releases do.
 - `apply` reported success when it created a record but could not write the
   new id back into the file, and the next `apply` created the record again. It
   now counts that as a failure and tells you the id to add.
+- When a batch of creates failed in a way that left it unknown whether the
+  server had committed it (a timeout, a dropped connection, a proxy error),
+  `apply` re-sent every record one at a time and could create each twice. It
+  now re-sends only when PocketBase itself refused the batch, and otherwise
+  lists the files to check.
 
 ## [0.7.1] - 2026-11-14
 
