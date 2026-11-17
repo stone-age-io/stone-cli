@@ -10,6 +10,13 @@ that period, and this file starts where the versioned releases do.
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-11-16
+
+**Relation flags take natural keys.** `stone thing provision --location hq
+--type gateway` works where it needed two ids looked up first. Nothing that
+worked before changes: an id is still tried first, and `-o json` and `apply`
+still deal in ids. Built against platform v0.20.0.
+
 ### Added
 
 - **Relation flags take natural keys.** `--location hq`, `--type temp-sensor`,
@@ -832,7 +839,8 @@ Summarising the state at first tag rather than the path to it:
 - `auth login` is interactive by design; credentials cannot be discovered by the
   CLI, which is also what stops an assistant authenticating as you.
 
-[Unreleased]: https://github.com/stone-age-io/stone-cli/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/stone-age-io/stone-cli/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/stone-age-io/stone-cli/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/stone-age-io/stone-cli/compare/v0.7.1...v0.8.0
 [0.7.1]: https://github.com/stone-age-io/stone-cli/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/stone-age-io/stone-cli/compare/v0.6.1...v0.7.0
