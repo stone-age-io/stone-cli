@@ -10,6 +10,16 @@ that period, and this file starts where the versioned releases do.
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-11-16
+
+**`apply` checks before it writes.** It used to PATCH every field of every file
+on every run. Now it compares each file with the server and sends only what
+differs; it refuses a file whose record someone changed after your pull,
+instead of quietly putting the old values back; and `--dry-run` shows what it
+would do. It also stops creating records twice when a write-back or a batch
+goes wrong. A minor version because `apply` now refuses things it used to
+send: see **Upgrading**. Built against platform v0.20.0.
+
 ### Upgrading
 
 - **Pull again** to turn on stale-file checking for an existing workspace.
@@ -25,7 +35,6 @@ that period, and this file starts where the versioned releases do.
   not mean to change. Apply lists those files and sends nothing. `--force`
   sends them anyway. After each create or update, apply writes the new
   `updated` back into the file, which drops comments in it.
-
 - `stone apply --dry-run` prints what would be created, and which fields of
   which records would be updated, without sending anything.
 - `stone apply --any-org` (see Changed).
@@ -44,6 +53,10 @@ that period, and this file starts where the versioned releases do.
   collection, instead of ignoring it silently.
 - `apply` handles collections in a fixed order, so its output is the same on
   every run.
+- The vendored schema is regenerated from platform v0.20.0. The only change is
+  `nebula_hosts.revoked_certificates` and `retired_certificates`, which `pull`
+  and `edit` already left alone (0.7.1); they are now checked against the
+  schema rather than listed as expected.
 
 ### Fixed
 
@@ -804,7 +817,10 @@ Summarising the state at first tag rather than the path to it:
 - `auth login` is interactive by design; credentials cannot be discovered by the
   CLI, which is also what stops an assistant authenticating as you.
 
-[Unreleased]: https://github.com/stone-age-io/stone-cli/compare/v0.6.1...HEAD
+[Unreleased]: https://github.com/stone-age-io/stone-cli/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/stone-age-io/stone-cli/compare/v0.7.1...v0.8.0
+[0.7.1]: https://github.com/stone-age-io/stone-cli/compare/v0.7.0...v0.7.1
+[0.7.0]: https://github.com/stone-age-io/stone-cli/compare/v0.6.1...v0.7.0
 [0.6.1]: https://github.com/stone-age-io/stone-cli/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/stone-age-io/stone-cli/compare/v0.5.1...v0.6.0
 [0.5.1]: https://github.com/stone-age-io/stone-cli/compare/v0.5.0...v0.5.1
