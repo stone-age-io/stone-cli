@@ -172,11 +172,13 @@ snapshots.
 stone pull                                  # writes <workspace>/<collection>/<lookup-key>.yaml per record
 stone apply                                 # 50-record batches; falls back to one at a time, so not all-or-nothing
 stone apply path/to/dir path/to/file.yaml   # restrict to specific paths
+stone apply --dry-run                       # print creates and changed fields; send nothing
 ```
 
 Properties:
 
-- **Idempotent.** Records with an `id` are PATCHed; records without are POSTed and the returned id is written back into the file.
+- **Idempotent.** Records with an `id` are PATCHed with only the fields that differ from the server; unchanged records are not sent. Records without an `id` are POSTed and the returned id is written back into the file (a failed write-back is reported as a failure).
+- **One organization per workspace.** A record whose `organization` is not the current one stops apply before anything is sent; `--any-org` overrides. Files in a directory that is not a collection are skipped with a `skip` line on stderr.
 - **Friendly filenames.** Files are named by the entity's lookup key, falling back to `name`, then id. Filename collisions get a `-<id>` suffix, and pulls are sorted by id so the suffix lands on the same record across runs. Filenames are cosmetic — `apply` keys on the `id` field inside each file.
 - **No deletes.** Records present on the server but absent locally are left alone. For deletion, use `stone <type> delete <id|key>` or the web UI.
 - **Org-scoped auto-fill.** On create, the current organization is injected into org-scoped records that don't already have one.

@@ -222,8 +222,21 @@ version may hold those directories: delete them, or each file fails on
 
 `stone apply` walks the workspace (or the paths you pass), groups records into
 batches of up to 50, and sends each batch to PocketBase's `/api/batch` endpoint.
-Records with an `id` are PATCHed; records without are POSTed and the returned id
-is written back into the file. Apply is safe to re-run.
+Records with an `id` are compared with the server first and PATCHed with only
+the fields that differ; a record that matches is not sent at all. Records
+without an `id` are POSTed and the returned id is written back into the file
+(if that write fails, apply reports a failure, since the next run would create
+the record again). Apply is safe to re-run.
+
+`stone apply --dry-run` prints what would be created, and which fields of which
+records would be updated, without sending anything.
+
+Files in a directory that is not a collection (`thing/` for `things/`, or a
+nested `things/old/`) are skipped with a `skip` line on stderr. A record whose
+`organization` is not the current organization stops apply before anything is
+sent — `pull` never clears a workspace, so pulling a second organization into
+the same directory leaves the first one's files beside it. Use a workspace per
+organization, or pass `--any-org` if you mean it.
 
 **Apply is not all-or-nothing.** The platform leaves batch requests off by
 default, and when a batch is refused or one of its records fails, `apply`
@@ -251,7 +264,8 @@ the way to disk:
 
 `pull` prints what it left out, per collection. The rest of each list is
 server-generated state and action triggers, which do not belong in a
-declarative file either: `apply` sends back every key in a file, so a pulled
+declarative file either: `apply` sends every key in a file that differs from
+the server, so a pulled
 certificate is a stale value racing whatever the server has rotated to since,
 and a pulled trigger re-asserts an action that already happened.
 
@@ -285,7 +299,9 @@ deletes, and it has no control loop. So the workspace is a snapshot from your
 last `pull` plus your edits — not a live mirror of the server. A record someone
 created in the console won't be in your workspace until you pull again, and two
 people applying different edits to the same record will not conflict: the last
-apply wins, field by field, silently. If a workspace is shared, `pull` before
+apply wins, field by field, silently. Comparing with the server does not change
+that: apply cannot tell a field you edited from one the server changed after
+your pull, so it sends both. If a workspace is shared, `pull` before
 `apply` the way you'd `git pull` before pushing.
 
 ## Entities supported by typed CRUD

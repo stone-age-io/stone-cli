@@ -7,11 +7,13 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/stone-age-io/stone-cli/internal/ctx"
 	"github.com/stone-age-io/stone-cli/internal/pb"
+	"gopkg.in/yaml.v3"
 )
 
 const batchSize = 50
@@ -35,8 +37,14 @@ var applyCmd = &cobra.Command{
 files, infers each file's collection from its parent directory, and creates
 or updates records via the PocketBase batch API.
 
-Records with an "id" field are updated; records without are created and the
-returned id is written back into the file. Apply is safe to re-run.`,
+Records with an "id" field are compared with the server and updated with only
+the fields that differ; unchanged records are not sent. Records without an id
+are created and the returned id is written back into the file. Apply is safe
+to re-run. --dry-run prints what would be sent without sending it.
+
+Files in a directory that is not a collection are skipped with a note. A
+record whose organization is not the current one stops the whole apply before
+anything is sent, unless --any-org is given.`,
 	RunE: runApply,
 }
 
@@ -44,6 +52,8 @@ func init() {
 	pullCmd.Flags().String("workspace", "", "workspace directory (default: context's workspace, then cwd)")
 	pullCmd.Flags().Bool("set-workspace", false, "save --workspace into the context after a successful pull")
 	applyCmd.Flags().String("workspace", "", "workspace directory (default: context's workspace, then cwd)")
+	applyCmd.Flags().Bool("dry-run", false, "print what would be created and updated (and which fields) without sending it")
+	applyCmd.Flags().Bool("any-org", false, "apply records that belong to organizations other than the current one")
 	rootCmd.AddCommand(pullCmd, applyCmd)
 }
 
@@ -344,7 +354,13 @@ type applyFile struct {
 	Ext        string
 	Collection string
 	Record     pb.Record
-	ID         string // empty for create
+	ID         string    // empty for create
+	Patch      pb.Record // update only: the keys that differ from the server
+}
+
+// name is how apply refers to a file in its output.
+func (f applyFile) name() string {
+	return f.Collection + "/" + filepath.Base(f.Path)
 }
 
 func runApply(cmd *cobra.Command, args []string) error {
@@ -359,14 +375,16 @@ func runApply(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	dryRun, _ := cmd.Flags().GetBool("dry-run")
+	anyOrg, _ := cmd.Flags().GetBool("any-org")
 
 	// Only the collections pull writes. A directory named after a read-only
 	// entity is left where it is rather than sent: apply would PATCH records
 	// whose collection has no update rule and count every one of them a failure.
-	collections := map[string]bool{}
+	specs := map[string]EntitySpec{}
 	for _, s := range entitySpecs {
 		if s.syncable() {
-			collections[s.Collection] = true
+			specs[s.Collection] = s
 		}
 	}
 
@@ -396,7 +414,10 @@ func runApply(cmd *cobra.Command, args []string) error {
 				return nil
 			}
 			coll := filepath.Base(filepath.Dir(path))
-			if !collections[coll] {
+			if _, ok := specs[coll]; !ok {
+				// Say so: a typo'd directory (thing/ for things/) or a nested
+				// one (things/old/) otherwise drops its files without a word.
+				fmt.Fprintf(os.Stderr, "skip     %s (%q is not a collection apply writes)\n", path, coll)
 				return nil
 			}
 			rec, err := pb.UnmarshalFile(path)
@@ -417,17 +438,18 @@ func runApply(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("no .yaml/.yml/.json files found under: %v", roots)
 	}
 
-	// Auto-inject organization for org-scoped collections when missing on create.
-	orgScoped := map[string]bool{}
-	for _, s := range entitySpecs {
-		orgScoped[s.Collection] = s.OrgScoped
+	if !anyOrg {
+		if err := checkOrganizations(files, specs, c.CurrentOrganization); err != nil {
+			return err
+		}
 	}
 
 	creates := map[string][]int{}
 	updates := map[string][]int{}
 	for i, f := range files {
 		if f.ID == "" {
-			if orgScoped[f.Collection] {
+			// Auto-inject organization for org-scoped collections when missing on create.
+			if specs[f.Collection].OrgScoped {
 				if _, ok := f.Record["organization"]; !ok {
 					if c.CurrentOrganization == "" {
 						return fmt.Errorf("%s: collection is org-scoped but no current organization set", f.Path)
@@ -442,142 +464,265 @@ func runApply(cmd *cobra.Command, args []string) error {
 	}
 
 	client := newPBClient(c)
-	var created, updated, failed int
 
-	for coll, idxs := range creates {
-		c2, f2, err := applyCreates(client, coll, files, idxs)
+	// Compare every update with the server first, the way edit does, so a
+	// record is PATCHed only with the keys that differ and an unchanged one is
+	// not PATCHed at all. A blind PATCH still bumps `updated` and fires the
+	// platform's hooks on every record in the workspace.
+	unchanged := 0
+	for _, s := range entitySpecs {
+		idxs := updates[s.Collection]
+		if len(idxs) == 0 {
+			continue
+		}
+		changed, err := diffUpdates(client, s.Collection, files, idxs)
 		if err != nil {
 			return err
 		}
+		unchanged += len(idxs) - len(changed)
+		updates[s.Collection] = changed
+	}
+
+	if dryRun {
+		var nc, nu int
+		for _, s := range entitySpecs {
+			for _, i := range creates[s.Collection] {
+				fmt.Printf("would create  %s\n", files[i].name())
+				nc++
+			}
+		}
+		for _, s := range entitySpecs {
+			for _, i := range updates[s.Collection] {
+				fmt.Printf("would update  %s (%s)\n", files[i].name(), strings.Join(sortedKeys(files[i].Patch), ", "))
+				nu++
+			}
+		}
+		fmt.Printf("dry run: would create %d  would update %d  unchanged %d\n", nc, nu, unchanged)
+		return nil
+	}
+
+	// entitySpecs order, not map order, so the output is the same on every
+	// run and can be diffed.
+	var created, updated, failed int
+	for _, s := range entitySpecs {
+		c2, f2 := applyCreates(client, s.Collection, files, creates[s.Collection])
 		created += c2
 		failed += f2
 	}
-	for coll, idxs := range updates {
-		u2, f2, err := applyUpdates(client, coll, files, idxs)
-		if err != nil {
-			return err
-		}
+	for _, s := range entitySpecs {
+		u2, f2 := applyUpdates(client, s.Collection, files, updates[s.Collection])
 		updated += u2
 		failed += f2
 	}
-	fmt.Printf("created %d  updated %d  failed %d\n", created, updated, failed)
+	fmt.Printf("created %d  updated %d  unchanged %d  failed %d\n", created, updated, unchanged, failed)
 	if failed > 0 {
 		return fmt.Errorf("%d operation(s) failed", failed)
 	}
 	return nil
 }
 
-func applyCreates(client *pb.Client, coll string, files []applyFile, idxs []int) (int, int, error) {
+// checkOrganizations refuses a workspace holding records of another
+// organization. pull does not clear a workspace, so pulling a second
+// organization into the same directory leaves the first one's files beside it,
+// and apply would PATCH both: ids are global, and an admin of both may write
+// either. --any-org is for the operator who means it.
+func checkOrganizations(files []applyFile, specs map[string]EntitySpec, current string) error {
+	if current == "" {
+		return nil
+	}
+	var bad []string
+	for _, f := range files {
+		if !pullScopedToOrg(specs[f.Collection]) {
+			continue
+		}
+		if org, _ := f.Record["organization"].(string); org != "" && org != current {
+			bad = append(bad, fmt.Sprintf("  %s (organization %s)", f.Path, org))
+		}
+	}
+	if len(bad) == 0 {
+		return nil
+	}
+	return fmt.Errorf("%d file(s) belong to an organization other than the current one (%s); nothing was sent.\n%s\nswitch organization, remove them, or pass --any-org",
+		len(bad), current, strings.Join(bad, "\n"))
+}
+
+// diffUpdates lists the collection once and sets each file's Patch to the keys
+// that differ from the server, returning the indexes that still have something
+// to send. Both sides go through the same YAML round trip editPatch's caller
+// uses, so a JSON float and a YAML int of the same number compare equal.
+//
+// A record the listing does not contain (deleted since the pull, or not
+// visible) keeps its whole body, so the PATCH reports whatever the server
+// says about it. This does not detect a server that changed since the pull:
+// a stale value in a file differs from the server and is sent like any edit.
+func diffUpdates(client *pb.Client, coll string, files []applyFile, idxs []int) ([]int, error) {
+	items, err := client.ListAll(coll, pb.ListOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", coll, err)
+	}
+	server := make(map[string]pb.Record, len(items))
+	for _, r := range items {
+		if id, _ := r["id"].(string); id != "" {
+			server[id] = r
+		}
+	}
+	var changed []int
+	for _, i := range idxs {
+		f := &files[i]
+		local, err := yamlRoundTrip(f.Record)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", f.Path, err)
+		}
+		cur, ok := server[f.ID]
+		if !ok {
+			f.Patch = editPatch(pb.Record{}, local)
+			changed = append(changed, i)
+			continue
+		}
+		remote, err := yamlRoundTrip(cur)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", f.Path, err)
+		}
+		if f.Patch = editPatch(remote, local); len(f.Patch) > 0 {
+			changed = append(changed, i)
+		}
+	}
+	return changed, nil
+}
+
+func yamlRoundTrip(r pb.Record) (pb.Record, error) {
+	data, err := yaml.Marshal(r)
+	if err != nil {
+		return nil, err
+	}
+	out := pb.Record{}
+	if err := yaml.Unmarshal(data, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func sortedKeys(r pb.Record) []string {
+	keys := make([]string, 0, len(r))
+	for k := range r {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// recordCreated writes the server-assigned id back into the file. If that
+// fails, the record exists but the file does not say so, and the next apply
+// would create it a second time -- so it counts as a failure and says what to
+// do about it.
+func recordCreated(f *applyFile, id string) bool {
+	if id == "" {
+		fmt.Fprintf(os.Stderr, "failed   %s: created, but the server returned no id; find it with `ls` and add \"id: <id>\" to the file, or the next apply creates it again\n", f.name())
+		return false
+	}
+	f.Record["id"] = id
+	if err := pb.MarshalFile(f.Path, f.Record); err != nil {
+		fmt.Fprintf(os.Stderr, "failed   %s: created as %s, but could not write the id back (%v); add \"id: %s\" to the file, or the next apply creates it again\n", f.name(), id, err, id)
+		return false
+	}
+	fmt.Printf("created  %s -> %s\n", f.name(), id)
+	return true
+}
+
+func applyCreates(client *pb.Client, coll string, files []applyFile, idxs []int) (int, int) {
 	var ok, failed int
 	for start := 0; start < len(idxs); start += batchSize {
-		end := start + batchSize
-		if end > len(idxs) {
-			end = len(idxs)
-		}
+		end := min(start+batchSize, len(idxs))
 		chunk := idxs[start:end]
 		ops := make([]pb.BatchOp, 0, len(chunk))
 		for _, i := range chunk {
-			body := stripIDForBatch(files[i].Record)
 			ops = append(ops, pb.BatchOp{
 				Method: "POST",
 				URL:    "/api/collections/" + coll + "/records",
-				Body:   body,
+				Body:   stripIDForBatch(files[i].Record),
 			})
 		}
 		items, err := client.Batch(ops)
 		if err != nil || hasBatchError(items) {
 			// Fall back to per-op to identify offenders.
-			o, f, ferr := perOpCreate(client, coll, files, chunk)
+			o, f := perOpCreate(client, coll, files, chunk)
 			ok += o
 			failed += f
-			if ferr != nil {
-				return ok, failed, ferr
-			}
 			continue
 		}
 		for j, item := range items {
 			var rec pb.Record
-			if err := json.Unmarshal(item.Body, &rec); err == nil {
-				if id, _ := rec["id"].(string); id != "" {
-					files[chunk[j]].Record["id"] = id
-					_ = pb.MarshalFile(files[chunk[j]].Path, files[chunk[j]].Record)
-					fmt.Printf("created  %s/%s -> %s\n", coll, filepath.Base(files[chunk[j]].Path), id)
-				}
+			_ = json.Unmarshal(item.Body, &rec)
+			id, _ := rec["id"].(string)
+			if recordCreated(&files[chunk[j]], id) {
+				ok++
+			} else {
+				failed++
 			}
-			ok++
 		}
 	}
-	return ok, failed, nil
+	return ok, failed
 }
 
-func applyUpdates(client *pb.Client, coll string, files []applyFile, idxs []int) (int, int, error) {
+func applyUpdates(client *pb.Client, coll string, files []applyFile, idxs []int) (int, int) {
 	var ok, failed int
 	for start := 0; start < len(idxs); start += batchSize {
-		end := start + batchSize
-		if end > len(idxs) {
-			end = len(idxs)
-		}
+		end := min(start+batchSize, len(idxs))
 		chunk := idxs[start:end]
 		ops := make([]pb.BatchOp, 0, len(chunk))
 		for _, i := range chunk {
-			body := stripIDForBatch(files[i].Record)
 			ops = append(ops, pb.BatchOp{
 				Method: "PATCH",
 				URL:    "/api/collections/" + coll + "/records/" + files[i].ID,
-				Body:   body,
+				Body:   files[i].Patch,
 			})
 		}
 		items, err := client.Batch(ops)
 		if err != nil || hasBatchError(items) {
-			o, f, ferr := perOpUpdate(client, coll, files, chunk)
+			o, f := perOpUpdate(client, coll, files, chunk)
 			ok += o
 			failed += f
-			if ferr != nil {
-				return ok, failed, ferr
-			}
 			continue
 		}
 		for _, i := range chunk {
-			fmt.Printf("updated  %s/%s\n", coll, filepath.Base(files[i].Path))
+			fmt.Printf("updated  %s (%s)\n", files[i].name(), strings.Join(sortedKeys(files[i].Patch), ", "))
 			ok++
 		}
 	}
-	return ok, failed, nil
+	return ok, failed
 }
 
-func perOpCreate(client *pb.Client, coll string, files []applyFile, idxs []int) (int, int, error) {
+func perOpCreate(client *pb.Client, coll string, files []applyFile, idxs []int) (int, int) {
 	var ok, failed int
 	for _, i := range idxs {
-		body := stripIDForBatch(files[i].Record)
-		r, err := client.Create(coll, pb.Record(body))
+		r, err := client.Create(coll, pb.Record(stripIDForBatch(files[i].Record)))
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "failed   %s/%s: %v\n", coll, filepath.Base(files[i].Path), err)
+			fmt.Fprintf(os.Stderr, "failed   %s: %v\n", files[i].name(), err)
 			failed++
 			continue
 		}
-		if id, _ := r["id"].(string); id != "" {
-			files[i].Record["id"] = id
-			_ = pb.MarshalFile(files[i].Path, files[i].Record)
-			fmt.Printf("created  %s/%s -> %s\n", coll, filepath.Base(files[i].Path), id)
+		id, _ := r["id"].(string)
+		if recordCreated(&files[i], id) {
+			ok++
+		} else {
+			failed++
 		}
-		ok++
 	}
-	return ok, failed, nil
+	return ok, failed
 }
 
-func perOpUpdate(client *pb.Client, coll string, files []applyFile, idxs []int) (int, int, error) {
+func perOpUpdate(client *pb.Client, coll string, files []applyFile, idxs []int) (int, int) {
 	var ok, failed int
 	for _, i := range idxs {
-		body := stripIDForBatch(files[i].Record)
-		if _, err := client.Update(coll, files[i].ID, pb.Record(body)); err != nil {
-			fmt.Fprintf(os.Stderr, "failed   %s/%s: %v\n", coll, filepath.Base(files[i].Path), err)
+		if _, err := client.Update(coll, files[i].ID, files[i].Patch); err != nil {
+			fmt.Fprintf(os.Stderr, "failed   %s: %v\n", files[i].name(), err)
 			failed++
 			continue
 		}
-		fmt.Printf("updated  %s/%s\n", coll, filepath.Base(files[i].Path))
+		fmt.Printf("updated  %s (%s)\n", files[i].name(), strings.Join(sortedKeys(files[i].Patch), ", "))
 		ok++
 	}
-	return ok, failed, nil
+	return ok, failed
 }
 
 func stripIDForBatch(r pb.Record) map[string]any {

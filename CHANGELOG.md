@@ -10,6 +10,33 @@ that period, and this file starts where the versioned releases do.
 
 ## [Unreleased]
 
+### Added
+
+- `stone apply --dry-run` prints what would be created, and which fields of
+  which records would be updated, without sending anything.
+- `stone apply --any-org` (see Changed).
+
+### Changed
+
+- `apply` compares each update with the server and sends only the fields that
+  differ, the way `edit` does. An unchanged record is not sent, so it no longer
+  bumps `updated` or fires the platform's hooks on every run. This does not
+  detect conflicts: a stale value in a file is still sent.
+- `apply` refuses, before sending anything, a workspace holding records of an
+  organization other than the current one. `pull` never clears a workspace, so
+  a second organization pulled into the same directory was applied too. Pass
+  `--any-org` to apply them anyway.
+- `apply` prints a `skip` line for a file in a directory that is not a
+  collection, instead of ignoring it silently.
+- `apply` handles collections in a fixed order, so its output is the same on
+  every run.
+
+### Fixed
+
+- `apply` reported success when it created a record but could not write the
+  new id back into the file, and the next `apply` created the record again. It
+  now counts that as a failure and tells you the id to add.
+
 ## [0.7.1] - 2026-11-14
 
 **Ready for pb-nebula v0.6.0.** That release keeps the certificates a Nebula

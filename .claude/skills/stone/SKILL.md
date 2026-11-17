@@ -194,10 +194,13 @@ Use when the user wants to manage many records declaratively, version them in gi
 stone pull                    # writes <workspace>/<collection>/<lookup-key>.yaml
 stone apply                   # walks workspace, batches up to 50/request via /api/batch
 stone apply path/to/file.yaml # apply specific files only
+stone apply --dry-run         # show creates and changed fields; send nothing
 ```
 
 Important semantics:
-- Records with an `id` field are PATCHed. Records without are POSTed, and the server-assigned id is **written back into the file**.
+- Records with an `id` field are PATCHed with only the fields that differ from the server; unchanged records are not sent. Records without are POSTed, and the server-assigned id is **written back into the file**.
+- Run `stone apply --dry-run` first when the user hasn't seen what will change.
+- A record whose `organization` is not the current org stops apply before anything is sent. Switch org or use a workspace per org; `--any-org` only if the user means it. A `skip <path>` line means the file's directory is not a collection name.
 - `apply` is idempotent — safe to re-run.
 - `apply` **does not delete** records that exist on the server but are absent locally. Use `stone <type> delete <id|key>` for that.
 - Org-scoped records get `organization` auto-injected on create if missing — relies on the current org being set.
