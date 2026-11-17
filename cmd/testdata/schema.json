@@ -3532,6 +3532,28 @@
       {
         "help": "",
         "hidden": false,
+        "id": "json1928818621",
+        "maxSize": 0,
+        "name": "revoked_certificates",
+        "presentable": false,
+        "required": false,
+        "system": false,
+        "type": "json"
+      },
+      {
+        "help": "",
+        "hidden": false,
+        "id": "json3947594614",
+        "maxSize": 0,
+        "name": "retired_certificates",
+        "presentable": false,
+        "required": false,
+        "system": false,
+        "type": "json"
+      },
+      {
+        "help": "",
+        "hidden": false,
         "id": "json2404973550",
         "maxSize": 1000,
         "name": "unsafe_networks",

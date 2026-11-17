@@ -95,7 +95,11 @@ var deliberatelyOmitted = map[string][]string{
 	// Secret material and server-derived state. The credential itself is
 	// readable by the identity that owns it, but nothing types it in.
 	"nats_users":   {"public_key", "private_key", "seed", "jwt", "creds_file"},
-	"nebula_hosts": {"certificate", "private_key", "ca_certificate", "config_yaml", "expires_at"},
+	"nebula_hosts": {"certificate", "private_key", "ca_certificate", "config_yaml", "expires_at",
+		// pb-nebula (v0.6.0+) moves a certificate here when the host stops
+		// holding it, and builds every peer's pki.blocklist from both lists.
+		// Server-derived, and a value written back would lift a revocation.
+		"revoked_certificates", "retired_certificates"},
 	"nebula_ca": {
 		"certificate", "private_key",
 		// The rotation trigger and its material: see routeOnlyFields.

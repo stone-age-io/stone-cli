@@ -108,11 +108,10 @@ func TestRevocationStateIsNeverPulled(t *testing.T) {
 // Each entry expires: once a refreshed schema has the field, the test below
 // fails until the entry is removed here (and the field is then explained in
 // deliberatelyOmitted, which the drift tests will ask for).
-var notYetVendored = map[string]bool{
-	// pb-nebula v0.6.0. The vendored schema is platform v0.19.1, on v0.5.1.
-	"nebula_hosts.revoked_certificates": true,
-	"nebula_hosts.retired_certificates": true,
-}
+//
+// Empty now: pb-nebula v0.6.0's two certificate lists, the last entries, are
+// in the schema vendored from platform v0.20.0.
+var notYetVendored = map[string]bool{}
 
 // The filter runs on whatever the server sent, so an entry for a field that no
 // longer exists is harmless at runtime and misleading to read. The vendored
