@@ -111,7 +111,7 @@ distinguishes them.
 
 - **Relations** (`--type`, `--location`, `--owner`, etc.) take a **15-char PocketBase id only**. Natural keys resolve on positional args, never on relation flags. Discover ids via `stone <type> get <key> --fields id -o json` or `stone <type> ls -o json` first.
 - **Multi-relations** (`--operations id1,id2` or repeated `--operations id1 --operations id2`) accept comma-separated lists.
-- **JSON fields** (`--metadata`, `--schema`, `--firewall_inbound`, …) accept:
+- **JSON fields** (`--metadata`, `--metadata-schema`, `--firewall-inbound`, …) accept:
   - inline JSON: `--metadata '{"k":"v"}'`
   - file: `--metadata @./meta.json`
   - stdin: `--metadata -`
@@ -201,7 +201,7 @@ Important semantics:
 - Records with an `id` field are PATCHed with only the fields that differ from the server; unchanged records are not sent. Records without are POSTed, and the server-assigned id is **written back into the file**.
 - Run `stone apply --dry-run` first when the user hasn't seen what will change.
 - A record whose `organization` is not the current org stops apply before anything is sent. Switch org or use a workspace per org; `--any-org` only if the user means it. A `skip <path>` line means the file's directory is not a collection name.
-- `apply` is idempotent — safe to re-run.
+- `apply` is idempotent — safe to re-run. **Except** after `failed   batch of N <collection> creates: ... the server may have created them anyway`: the connection failed mid-batch, so those records may exist without ids in their files. Run `stone <collection> ls`, add the id of each one that exists to its file, and only then re-run, or it is created twice.
 - `apply` **does not delete** records that exist on the server but are absent locally. Use `stone <type> delete <id|key>` for that.
 - Org-scoped records get `organization` auto-injected on create if missing — relies on the current org being set.
 - Server-managed fields (`collectionId`, `collectionName`, `created`, `updated`) are stripped by `pull` and ignored by `apply`.

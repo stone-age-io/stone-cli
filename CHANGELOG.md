@@ -41,6 +41,10 @@ that period, and this file starts where the versioned releases do.
   `apply` re-sent every record one at a time and could create each twice. It
   now re-sends only when PocketBase itself refused the batch, and otherwise
   lists the files to check.
+- The `stone` agent skill named JSON flags that do not exist: `--schema` (gone
+  with message schemas) and `--firewall_inbound` (the flag is
+  `--firewall-inbound`). It now names `--metadata-schema` and
+  `--firewall-inbound`.
 
 ## [0.7.1] - 2026-11-14
 

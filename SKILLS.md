@@ -178,6 +178,7 @@ stone apply --dry-run                       # print creates and changed fields; 
 Properties:
 
 - **Idempotent.** Records with an `id` are PATCHed with only the fields that differ from the server; unchanged records are not sent. Records without an `id` are POSTed and the returned id is written back into the file (a failed write-back is reported as a failure).
+- **An unknown outcome is not retried.** If a batch of creates fails without PocketBase answering (timeout, dropped connection, proxy error), `apply` does not re-send it, because it may have committed. It lists the files; check `stone <collection> ls` and add the ids of any that exist before re-running.
 - **One organization per workspace.** A record whose `organization` is not the current one stops apply before anything is sent; `--any-org` overrides. Files in a directory that is not a collection are skipped with a `skip` line on stderr.
 - **Friendly filenames.** Files are named by the entity's lookup key, falling back to `name`, then id. Filename collisions get a `-<id>` suffix, and pulls are sorted by id so the suffix lands on the same record across runs. Filenames are cosmetic — `apply` keys on the `id` field inside each file.
 - **No deletes.** Records present on the server but absent locally are left alone. For deletion, use `stone <type> delete <id|key>` or the web UI.

@@ -56,6 +56,7 @@ tar xzf stone_${VERSION}_linux_amd64.tar.gz     # unpacks ./stone, LICENSE, READ
 mkdir my-workspace && cd my-workspace && git init
 ../stone pull --workspace . --set-workspace   # writes <collection>/<code>.yaml
 # ...edit any file, commit, then:
+../stone apply --dry-run                      # what would be created, and which fields change
 ../stone apply
 
 # 7) NATS
