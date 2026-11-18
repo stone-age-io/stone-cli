@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -15,13 +14,15 @@ import (
 	"github.com/stone-age-io/stone-cli/internal/ctx"
 	"github.com/stone-age-io/stone-cli/internal/natsx"
 	"github.com/stone-age-io/stone-cli/internal/pb"
-	"gopkg.in/yaml.v3"
 )
 
 var jsCmd = &cobra.Command{
 	Use:   "js",
 	Short: "Manage JetStream streams",
-	Long:  `JetStream stream administration. KV buckets and data ops live under 'stone kv'.`,
+	Long: `JetStream stream administration. KV buckets and data ops live under 'stone kv'.
+
+'js pull' and 'js apply' keep the config of every stream and KV bucket as files
+in <workspace>/jetstream/, for git.`,
 }
 
 // ---- streams ----------------------------------------------------------------
@@ -148,8 +149,11 @@ var jsStreamCreateCmd = &cobra.Command{
 	Use:   "create <name>",
 	Short: "Create a stream",
 	Long: `Create a stream with common flags. Advanced configuration:
-  --config <file>     load a YAML or JSON jetstream.StreamConfig (the file's
-                      name field is ignored; the positional <name> wins)`,
+  --config <file>     load a YAML or JSON stream config, with the keys the
+                      server and 'nats' use (max_age, num_replicas, ...) and
+                      durations as "24h" or nanoseconds. A file 'stone js pull'
+                      wrote works. Its name is ignored; the positional <name>
+                      wins, and flags given alongside override the file.`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		js, cleanup, err := openJS()
@@ -379,19 +383,8 @@ func streamConfigFromFlags(cmd *cobra.Command, name string) (jetstream.StreamCon
 	cfg := jetstream.StreamConfig{Name: name}
 
 	if path, _ := cmd.Flags().GetString("config"); path != "" {
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return cfg, fmt.Errorf("read --config: %w", err)
-		}
-		switch strings.ToLower(filepath.Ext(path)) {
-		case ".yaml", ".yml":
-			if err := yaml.Unmarshal(data, &cfg); err != nil {
-				return cfg, fmt.Errorf("parse %s: %w", path, err)
-			}
-		default:
-			if err := json.Unmarshal(data, &cfg); err != nil {
-				return cfg, fmt.Errorf("parse %s: %w", path, err)
-			}
+		if err := readJSConfigFile(path, kindStream, &cfg); err != nil {
+			return cfg, err
 		}
 		cfg.Name = name
 	}
@@ -441,19 +434,8 @@ func kvConfigFromFlags(cmd *cobra.Command, name string) (jetstream.KeyValueConfi
 	cfg := jetstream.KeyValueConfig{Bucket: name}
 
 	if path, _ := cmd.Flags().GetString("config"); path != "" {
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return cfg, fmt.Errorf("read --config: %w", err)
-		}
-		switch strings.ToLower(filepath.Ext(path)) {
-		case ".yaml", ".yml":
-			if err := yaml.Unmarshal(data, &cfg); err != nil {
-				return cfg, fmt.Errorf("parse %s: %w", path, err)
-			}
-		default:
-			if err := json.Unmarshal(data, &cfg); err != nil {
-				return cfg, fmt.Errorf("parse %s: %w", path, err)
-			}
+		if err := readJSConfigFile(path, kindKV, &cfg); err != nil {
+			return cfg, err
 		}
 		cfg.Bucket = name
 	}
@@ -570,7 +552,7 @@ func init() {
 	jsStreamCreateCmd.Flags().String("retention", "limits", "retention policy: limits|interest|workqueue")
 	jsStreamCreateCmd.Flags().String("storage", "file", "storage: file|memory")
 	jsStreamCreateCmd.Flags().Int("replicas", 1, "number of replicas")
-	jsStreamCreateCmd.Flags().String("config", "", "YAML/JSON jetstream.StreamConfig (overrides flags)")
+	jsStreamCreateCmd.Flags().String("config", "", "YAML/JSON stream config, keyed as the server keys it (max_age, ...); flags given alongside override it")
 	jsStreamViewCmd.Flags().IntP("last", "n", 10, "number of most recent messages to show")
 	jsStreamPurgeCmd.Flags().BoolP("yes", "y", false, "skip confirmation")
 	jsStreamDeleteCmd.Flags().BoolP("yes", "y", false, "skip confirmation")
@@ -582,7 +564,7 @@ func init() {
 	jsBucketCreateCmd.Flags().Int32("max-value-size", 0, "max value size in bytes (0 = unlimited)")
 	jsBucketCreateCmd.Flags().String("storage", "file", "storage: file|memory")
 	jsBucketCreateCmd.Flags().Int("replicas", 1, "number of replicas")
-	jsBucketCreateCmd.Flags().String("config", "", "YAML/JSON jetstream.KeyValueConfig (overrides flags)")
+	jsBucketCreateCmd.Flags().String("config", "", "YAML/JSON bucket config, keyed as the server keys it (history, ttl, ...); flags given alongside override it")
 	jsBucketDeleteCmd.Flags().BoolP("yes", "y", false, "skip confirmation")
 
 	jsStreamCmd.AddCommand(jsStreamLsCmd, jsStreamInfoCmd, jsStreamViewCmd, jsStreamCreateCmd, jsStreamPurgeCmd, jsStreamDeleteCmd)

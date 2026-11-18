@@ -237,10 +237,20 @@ stone js stream ls
 stone js stream view twins --last 20          # most recent N messages (newest first)
 stone js stream create twins --subject 'twins.>' --max-age 24h --storage file
 
+stone js pull                  # stream + KV bucket config → <workspace>/jetstream/{streams,kv}/
+stone js apply --dry-run       # diff the files against the server
+stone js apply                 # create/update; refuses files the server changed since pull (--force)
+
 stone nats sync-context        # re-issue per-org creds after key rotation
 ```
 
 `stone` does **not** manage JetStream consumers — use the `nats` CLI for that.
+
+`js pull`/`js apply` are separate from `pull`/`apply` (which skips `jetstream/`).
+A stream file is the whole config, so a key deleted from it goes back to the
+server default on apply. A KV bucket's file is in bucket form (`history`,
+`ttl`); never edit its `KV_` stream as a stream. They handle config only; for
+stream data use `nats --context stone-<ctx>-<org> stream backup <stream> <dir>`.
 
 ## Nebula overlay
 

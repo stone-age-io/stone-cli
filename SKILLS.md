@@ -10,7 +10,7 @@ This document describes the `stone` CLI's capability surface for integration wit
 - Operate declaratively on a YAML workspace via `pull` and `apply` (PocketBase `/api/batch`, up to 50 ops per request, idempotent, no deletes).
 - Publish, subscribe, request on NATS, including JetStream publish.
 - Read and write JetStream KV buckets.
-- Administer JetStream streams (`stone js stream`) and KV bucket lifecycle (`stone kv bucket`). Consumer management is intentionally out of scope — use the `nats` CLI.
+- Administer JetStream streams (`stone js stream`) and KV bucket lifecycle (`stone kv bucket`). Keep stream and KV bucket config in git with `stone js pull` / `stone js apply`. Consumer management is intentionally out of scope — use the `nats` CLI.
 
 The CLI authenticates to a PocketBase server and reuses the user's nats-cli contexts (with per-org sync after `org switch`).
 
@@ -216,6 +216,8 @@ stone js stream create <name> --subject 'foo.>' --max-age 24h --storage file
 stone js stream create <name> --config stream.yaml    # advanced
 stone js stream purge <name>
 stone js stream delete <name>
+stone js pull                     # stream + bucket config -> <workspace>/jetstream/{streams,kv}/
+stone js apply [--dry-run]        # create/update from those files; refuses ones changed on the server since pull (--force)
 
 stone nats sync-context                               # re-issue per-org creds after rotation
 ```

@@ -10,6 +10,31 @@ that period, and this file starts where the versioned releases do.
 
 ## [Unreleased]
 
+### Added
+
+- **`stone js pull` / `stone js apply`: JetStream config in git.** Pull writes
+  every stream in the organization's account to
+  `<workspace>/jetstream/streams/<stream>.yaml`, and every KV bucket, in bucket
+  form, to `jetstream/kv/<bucket>.yaml`, with server defaults left out and
+  durations as `24h`. Apply diffs each file against the server and creates or
+  updates only what differs; `--dry-run` shows the changed fields. A
+  `config_hash` in each file makes apply refuse a stream that changed or was
+  deleted on the server since the pull (`--force` overrides). It also refuses a
+  bucket whose stream has settings a bucket file cannot express, since an update
+  would reset them, and a file of another organization (`--any-org`).
+  Configuration only: no messages, no consumers, and nothing is ever deleted.
+  `stone apply` now steps over the `jetstream/` directory.
+
+### Fixed
+
+- **`js stream create --config` and `kv bucket create --config` read YAML
+  properly.** A YAML file was decoded straight into nats.go's structs, which
+  have only JSON tags, so `max_age`, `num_replicas` and every other two-word key
+  were silently ignored, and `storage: memory` or `retention: workqueue` failed
+  to parse at all. Both formats now use the keys the server and `nats` use,
+  take durations as `24h` or nanoseconds, refuse an unknown key instead of
+  dropping it, and accept a file `stone js pull` wrote.
+
 ## [0.9.0] - 2026-11-16
 
 **Relation flags take natural keys.** `stone thing provision --location hq

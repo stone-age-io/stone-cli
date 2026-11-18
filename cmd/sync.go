@@ -426,6 +426,15 @@ func runApply(cmd *cobra.Command, args []string) error {
 				if strings.HasPrefix(d.Name(), ".") && path != abs {
 					return filepath.SkipDir
 				}
+				// JetStream config is `stone js apply`'s. Inside a workspace it
+				// is stepped over without a word, or every apply would print a
+				// skip line per stream; named directly, say where it goes.
+				if d.Name() == jsDir {
+					if path == abs {
+						fmt.Fprintf(os.Stderr, "skip     %s (JetStream config; use `stone js apply`)\n", path)
+					}
+					return filepath.SkipDir
+				}
 				return nil
 			}
 			ext := strings.ToLower(filepath.Ext(path))

@@ -128,6 +128,29 @@ func defaultDescription(opts SyncOptions) string {
 	return strings.Join(parts, "; ")
 }
 
+// ContextOrgID returns the organization id that SyncContextForOrg recorded in
+// the description of the nats-cli context file at path, or "" when the file is
+// not one stone wrote, predates the org-id field, or cannot be read. The
+// connection's credentials belong to that organization's NATS account, which
+// is how a caller can tell when the active stone context has switched org
+// without re-syncing NATS (`org switch --no-nats`).
+func ContextOrgID(path string) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	var f natsCtxFile
+	if json.Unmarshal(data, &f) != nil || !strings.HasPrefix(f.Description, managedPrefix) {
+		return ""
+	}
+	for _, part := range strings.Split(f.Description, "; ") {
+		if id, ok := strings.CutPrefix(part, "org-id="); ok {
+			return id
+		}
+	}
+	return ""
+}
+
 // writeCredsFile writes the .creds content to a stone-owned path and returns it.
 func writeCredsFile(name, content string) (string, error) {
 	dir := filepath.Join(xdg.ConfigHome, "stone", "creds")

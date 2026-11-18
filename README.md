@@ -610,10 +610,50 @@ afterwards.
 ./stone js stream info <name>
 ./stone js stream view <name> --last 20                  # most recent N messages (newest first)
 ./stone js stream create twins --subject "twins.>" --max-age 24h --storage file
-./stone js stream create twins --config stream.yaml      # advanced config
+./stone js stream create twins --config stream.yaml      # advanced config (max_age: 24h, ...; a pulled file works)
 ./stone js stream purge <name>
 ./stone js stream delete <name>
 ```
+
+### Stream and bucket config in git (`stone js pull` / `apply`)
+
+```sh
+./stone js pull                     # → <workspace>/jetstream/streams/*.yaml, jetstream/kv/*.yaml
+./stone js apply --dry-run          # which files would create or update, and which fields
+./stone js apply
+```
+
+The JetStream counterpart of `stone pull` / `stone apply`, for configuration
+only: no messages, no consumers. A stream file is the stream's config with
+server defaults left out and durations written as `24h`. A KV bucket is written
+as a bucket (`history`, `ttl`, ...) rather than as its `KV_` stream. Object
+stores are skipped.
+
+```yaml
+# jetstream/streams/EVENTS.yaml
+name: EVENTS
+subjects:
+    - events.>
+max_age: 168h
+allow_direct: true
+organization: <org id>
+config_hash: 4c2e12d427298b64
+```
+
+A file holds the whole config: a field you delete goes back to the server's
+default. Apply never deletes a stream that has no file. `config_hash` plays the
+part `updated` plays for records: if the stream changed on the server since the
+file was pulled, or was deleted, apply refuses and sends nothing (`--force`
+overrides). The server refuses changes it cannot make, such as a new storage
+type; apply reports those per file and carries on.
+
+To back up stream **data**, use the nats CLI with the context stone writes:
+
+```sh
+nats --context stone-<ctx>-<org> stream backup EVENTS ./backups/EVENTS
+```
+
+Keep backups out of the git workspace.
 
 ## KV (`stone kv`)
 
