@@ -173,6 +173,7 @@ stone pull                                  # writes <workspace>/<collection>/<l
 stone apply                                 # 50-record batches; falls back to one at a time, so not all-or-nothing
 stone apply path/to/dir path/to/file.yaml   # restrict to specific paths
 stone apply --dry-run                       # print creates and changed fields; send nothing
+stone apply --dry-run --exit-code           # exit 2 if anything would be sent, 0 if in sync (CI drift check)
 ```
 
 Properties:

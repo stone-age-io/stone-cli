@@ -24,6 +24,17 @@ that period, and this file starts where the versioned releases do.
   would reset them, and a file of another organization (`--any-org`).
   Configuration only: no messages, no consumers, and nothing is ever deleted.
   `stone apply` now steps over the `jetstream/` directory.
+- **`--exit-code` for drift checks.** `stone apply --dry-run --exit-code` and
+  `stone js apply --dry-run --exit-code` exit 2 when apply would create or
+  update something, 0 when the workspace and the server agree, and 1 on an
+  error. That is enough for a scheduled CI job to catch someone changing a
+  record in the console or running `nats stream edit`.
+- **Apply lists what is on the server with no file.** Apply never deletes, so a
+  record created in the console, or a stream made with `nats stream add`, was
+  invisible to it. A whole-workspace `stone apply` or `stone js apply` now
+  prints them as `no file` lines and counts them in its summary. It still leaves
+  them alone. For `stone apply`, only collections the workspace has a directory
+  for are checked.
 
 ### Fixed
 

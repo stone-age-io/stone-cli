@@ -142,7 +142,14 @@ apply too, unless --any-org is given.
 The server checks every config and refuses changes it cannot make (storage
 type, for one); apply reports those per file and carries on with the rest.
 After each write, apply records the new config_hash in the file, which
-drops any comments in it.`,
+drops any comments in it.
+
+Run over the whole workspace, apply also lists the streams and buckets on the
+server that no file declares ("no file"). It leaves them alone.
+
+For CI: --dry-run --exit-code exits 2 when apply would create or update
+something, 0 when the workspace and the server agree, and 1 on an error.
+"no file" streams do not count.`,
 	RunE: runJSApply,
 }
 
@@ -152,6 +159,7 @@ func init() {
 	jsApplyCmd.Flags().Bool("dry-run", false, "print what would be created and updated (and which fields) without sending it")
 	jsApplyCmd.Flags().Bool("force", false, "send files the server has changed or deleted since they were pulled")
 	jsApplyCmd.Flags().Bool("any-org", false, "apply files that belong to organizations other than the current one")
+	jsApplyCmd.Flags().Bool("exit-code", false, "with --dry-run: exit 2 when apply would create or update something, 0 when not")
 	jsCmd.AddCommand(jsPullCmd, jsApplyCmd)
 }
 
@@ -191,6 +199,12 @@ func runJSApply(cmd *cobra.Command, args []string) error {
 	opt.DryRun, _ = cmd.Flags().GetBool("dry-run")
 	opt.Force, _ = cmd.Flags().GetBool("force")
 	opt.AnyOrg, _ = cmd.Flags().GetBool("any-org")
+	opt.ExitCode, _ = cmd.Flags().GetBool("exit-code")
+	if opt.ExitCode && !opt.DryRun {
+		return errors.New("--exit-code needs --dry-run")
+	}
+	// With paths given, every stream outside them would look unmanaged.
+	opt.ReportNoFile = len(args) == 0
 
 	roots := args
 	if len(roots) == 0 {
@@ -332,6 +346,8 @@ func jsPull(cctx context.Context, js jetstream.JetStream, dir, org string, out, 
 
 type jsApplyOptions struct {
 	DryRun, Force, AnyOrg bool
+	ExitCode              bool // dry run: errChangesPending when something would be sent
+	ReportNoFile          bool // list streams and buckets on the server that no file declares
 }
 
 // jsFile is one workspace file and, once planned, what apply will do with it.
@@ -517,6 +533,16 @@ func jsApply(cctx context.Context, js jetstream.JetStream, files []*jsFile, org 
 			len(refused), strings.Join(refused, "\n"))
 	}
 
+	var noFile []string
+	noFileSummary := ""
+	if opt.ReportNoFile {
+		var err error
+		if noFile, err = serverOnlyStreams(cctx, js, files); err != nil {
+			return err
+		}
+		noFileSummary = fmt.Sprintf("  no file %d", len(noFile))
+	}
+
 	if opt.DryRun {
 		for _, f := range creates {
 			fmt.Fprintf(out, "would create  %s\n", f.label())
@@ -524,7 +550,11 @@ func jsApply(cctx context.Context, js jetstream.JetStream, files []*jsFile, org 
 		for _, f := range updates {
 			fmt.Fprintf(out, "would update  %s (%s)\n", f.label(), strings.Join(f.changes, ", "))
 		}
-		fmt.Fprintf(out, "dry run: would create %d  would update %d  unchanged %d\n", len(creates), len(updates), unchanged)
+		printJSNoFile(out, noFile)
+		fmt.Fprintf(out, "dry run: would create %d  would update %d  unchanged %d%s\n", len(creates), len(updates), unchanged, noFileSummary)
+		if opt.ExitCode && len(creates)+len(updates) > 0 {
+			return errChangesPending
+		}
 		return nil
 	}
 
@@ -547,7 +577,8 @@ func jsApply(cctx context.Context, js jetstream.JetStream, files []*jsFile, org 
 		fmt.Fprintf(out, "updated  %s (%s)\n", f.label(), strings.Join(f.changes, ", "))
 		updated++
 	}
-	fmt.Fprintf(out, "created %d  updated %d  unchanged %d  failed %d\n", created, updated, unchanged, failed)
+	printJSNoFile(out, noFile)
+	fmt.Fprintf(out, "created %d  updated %d  unchanged %d  failed %d%s\n", created, updated, unchanged, failed, noFileSummary)
 	if failed > 0 {
 		return fmt.Errorf("%d operation(s) failed", failed)
 	}
@@ -1184,4 +1215,39 @@ func (a jsAPI) updateStream(cctx context.Context, name string, cfg map[string]an
 func jsOrgLabel(c ctx.Context, id string) string {
 	code, name := lookupOrg(c, id)
 	return formatOrg(id, code, name)
+}
+
+// serverOnlyStreams lists the streams and buckets on the server that no file
+// declares, as "streams/<name>" or "kv/<bucket>". apply never deletes, so
+// without this a stream made with `nats stream add` is invisible to it.
+// Object stores are left out, as pull leaves them out.
+func serverOnlyStreams(cctx context.Context, js jetstream.JetStream, files []*jsFile) ([]string, error) {
+	have := map[string]bool{}
+	for _, f := range files {
+		have[f.streamName()] = true
+	}
+	lister := js.StreamNames(cctx)
+	var out []string
+	for name := range lister.Name() {
+		switch {
+		case have[name], strings.HasPrefix(name, objStreamPrefix):
+		case strings.HasPrefix(name, kvStreamPrefix):
+			out = append(out, jsKVDir+"/"+strings.TrimPrefix(name, kvStreamPrefix))
+		default:
+			out = append(out, jsStreamsDir+"/"+name)
+		}
+	}
+	if err := lister.Err(); err != nil {
+		return nil, fmt.Errorf("list streams: %w", err)
+	}
+	sort.Strings(out)
+	return out, nil
+}
+
+// printJSNoFile reports what is on the server with no file. It is not a
+// change apply would make, so it does not count toward --exit-code.
+func printJSNoFile(out io.Writer, lines []string) {
+	for _, l := range lines {
+		fmt.Fprintf(out, "no file  %s (on the server only; apply leaves it alone)\n", l)
+	}
 }

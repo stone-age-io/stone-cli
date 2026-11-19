@@ -232,6 +232,20 @@ the record again). Apply is safe to re-run.
 `stone apply --dry-run` prints what would be created, and which fields of which
 records would be updated, without sending anything.
 
+Apply never deletes, so a record created on the server since your pull would
+otherwise be invisible to it. Run over the whole workspace, it lists those as
+`no file  things/T-9 [<id>]`, for each collection the workspace has a directory
+for. `stone js apply` does the same for streams and buckets.
+
+**Drift checks in CI.** Add `--exit-code` to a dry run, for `stone apply` or
+`stone js apply`. It exits 2 when apply would create or update something, 0
+when the workspace and the server agree, and 1 on an error, as
+`git diff --exit-code` does. `no file` lines do not count:
+
+```sh
+stone apply --dry-run --exit-code && stone js apply --dry-run --exit-code
+```
+
 **Stale files are refused.** Each pulled file keeps the record's `updated`
 time. If someone changes the record after your pull, the server's `updated`
 moves on, and an `apply` of that file would put back the old values of every

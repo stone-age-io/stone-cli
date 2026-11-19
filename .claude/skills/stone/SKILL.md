@@ -203,7 +203,8 @@ Important semantics:
 - Run `stone apply --dry-run` first when the user hasn't seen what will change.
 - A record whose `organization` is not the current org stops apply before anything is sent. Switch org or use a workspace per org; `--any-org` only if the user means it. A `skip <path>` line means the file's directory is not a collection name.
 - `apply` is idempotent — safe to re-run. **Except** after `failed   batch of N <collection> creates: ... the server may have created them anyway`: the connection failed mid-batch, so those records may exist without ids in their files. Run `stone <collection> ls`, add the id of each one that exists to its file, and only then re-run, or it is created twice.
-- `apply` **does not delete** records that exist on the server but are absent locally. Use `stone <type> delete <id|key>` for that.
+- `apply` **does not delete** records that exist on the server but are absent locally. Use `stone <type> delete <id|key>` for that. A whole-workspace apply lists them as `no file  <collection>/<key> [<id>]`; `stone pull` brings them into the workspace.
+- `--dry-run --exit-code` (on `apply` and `js apply`) exits 2 when something would be sent, 0 when in sync, 1 on error. Use it for drift checks; `no file` records don't count.
 - Org-scoped records get `organization` auto-injected on create if missing — relies on the current org being set.
 - Server-managed fields (`collectionId`, `collectionName`, `created`) are stripped by `pull` and ignored by `apply`. `updated` is kept as a lock: don't edit or remove it.
 - **`N file(s) are older than the record on the server; nothing was sent`** means someone changed those records after the pull. Do **not** reach for `--force` on your own — it overwrites their change. Have the user commit, `stone pull`, then re-make their edits from `git diff` and apply again. Use `--force` only if the user says to overwrite.

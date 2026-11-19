@@ -53,7 +53,16 @@ the file (which drops any comments in it).
 
 Files in a directory that is not a collection are skipped with a note. A
 record whose organization is not the current one stops the whole apply before
-anything is sent, unless --any-org is given.`,
+anything is sent, unless --any-org is given.
+
+Apply never deletes. Run over the whole workspace, it lists the records on the
+server that no file holds ("no file"), for each collection the workspace has a
+directory for, so a record created in the console since the last pull is not
+invisible.
+
+For CI: --dry-run --exit-code exits 2 when apply would create or update
+something, 0 when the workspace and the server agree, and 1 on an error.
+"no file" records do not count.`,
 	RunE: runApply,
 }
 
@@ -64,6 +73,7 @@ func init() {
 	applyCmd.Flags().Bool("dry-run", false, "print what would be created and updated (and which fields) without sending it")
 	applyCmd.Flags().Bool("any-org", false, "apply records that belong to organizations other than the current one")
 	applyCmd.Flags().Bool("force", false, "send records the server has changed since the file was pulled, overwriting those changes")
+	applyCmd.Flags().Bool("exit-code", false, "with --dry-run: exit 2 when apply would create or update something, 0 when not")
 	rootCmd.AddCommand(pullCmd, applyCmd)
 }
 
@@ -396,6 +406,10 @@ func runApply(cmd *cobra.Command, args []string) error {
 	dryRun, _ := cmd.Flags().GetBool("dry-run")
 	anyOrg, _ := cmd.Flags().GetBool("any-org")
 	force, _ := cmd.Flags().GetBool("force")
+	exitCode, _ := cmd.Flags().GetBool("exit-code")
+	if exitCode && !dryRun {
+		return errors.New("--exit-code needs --dry-run")
+	}
 
 	// Only the collections pull writes. A directory named after a read-only
 	// entity is left where it is rather than sent: apply would PATCH records
@@ -498,6 +512,20 @@ func runApply(cmd *cobra.Command, args []string) error {
 	// record is PATCHed only with the keys that differ and an unchanged one is
 	// not PATCHed at all. A blind PATCH still bumps `updated` and fires the
 	// platform's hooks on every record in the workspace.
+	//
+	// One listing per collection serves both the diff and the no-file report.
+	listings := map[string][]pb.Record{}
+	list := func(coll string) ([]pb.Record, error) {
+		if items, ok := listings[coll]; ok {
+			return items, nil
+		}
+		items, err := client.ListAll(coll, pb.ListOptions{})
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", coll, err)
+		}
+		listings[coll] = items
+		return items, nil
+	}
 	unchanged := 0
 	var stale []string
 	for _, s := range entitySpecs {
@@ -505,7 +533,11 @@ func runApply(cmd *cobra.Command, args []string) error {
 		if len(idxs) == 0 {
 			continue
 		}
-		changed, st, err := diffUpdates(client, s.Collection, files, idxs)
+		items, err := list(s.Collection)
+		if err != nil {
+			return err
+		}
+		changed, st, err := diffUpdatesFrom(items, s.Collection, files, idxs)
 		if err != nil {
 			return err
 		}
@@ -518,6 +550,19 @@ func runApply(cmd *cobra.Command, args []string) error {
 			"their other fields would overwrite the newer values. Commit your edits, run `stone pull`,\n"+
 			"and use `git diff` to put your changes back; or pass --force to overwrite the server",
 			len(stale), strings.Join(stale, "\n"))
+	}
+
+	// Only for a whole-workspace apply: with paths given, everything outside
+	// them would be reported as missing.
+	var noFile []string
+	if len(args) == 0 {
+		if noFile, err = serverOnlyRecords(ws, files, c.CurrentOrganization, list); err != nil {
+			return err
+		}
+	}
+	noFileSummary := ""
+	if len(args) == 0 {
+		noFileSummary = fmt.Sprintf("  no file %d", len(noFile))
 	}
 
 	if dryRun {
@@ -534,7 +579,11 @@ func runApply(cmd *cobra.Command, args []string) error {
 				nu++
 			}
 		}
-		fmt.Printf("dry run: would create %d  would update %d  unchanged %d\n", nc, nu, unchanged)
+		printNoFile(noFile)
+		fmt.Printf("dry run: would create %d  would update %d  unchanged %d%s\n", nc, nu, unchanged, noFileSummary)
+		if exitCode && nc+nu > 0 {
+			return errChangesPending
+		}
 		return nil
 	}
 
@@ -551,11 +600,62 @@ func runApply(cmd *cobra.Command, args []string) error {
 		updated += u2
 		failed += f2
 	}
-	fmt.Printf("created %d  updated %d  unchanged %d  failed %d\n", created, updated, unchanged, failed)
+	printNoFile(noFile)
+	fmt.Printf("created %d  updated %d  unchanged %d  failed %d%s\n", created, updated, unchanged, failed, noFileSummary)
 	if failed > 0 {
 		return fmt.Errorf("%d operation(s) failed", failed)
 	}
 	return nil
+}
+
+// serverOnlyRecords lists the records on the server that no workspace file
+// holds -- created in the console, by an agent, or since the last pull -- as
+// "<collection>/<key> [<id>]". apply never deletes, so without this they are
+// invisible to it. Only collections with a directory in the workspace are
+// checked: a collection never pulled is not "missing" everything. Other
+// organizations' records are left out the way pull leaves them out.
+func serverOnlyRecords(ws string, files []applyFile, org string, list func(string) ([]pb.Record, error)) ([]string, error) {
+	have := map[string]bool{}
+	for _, f := range files {
+		if f.ID != "" {
+			have[f.Collection+"/"+f.ID] = true
+		}
+	}
+	var out []string
+	for _, s := range entitySpecs {
+		if !s.syncable() {
+			continue
+		}
+		if fi, err := os.Stat(filepath.Join(ws, s.Collection)); err != nil || !fi.IsDir() {
+			continue
+		}
+		items, err := list(s.Collection)
+		if err != nil {
+			return nil, err
+		}
+		var lines []string
+		for _, r := range items {
+			id, _ := r["id"].(string)
+			if id == "" || have[s.Collection+"/"+id] {
+				continue
+			}
+			if pullScopedToOrg(s) && org != "" && r["organization"] != org {
+				continue
+			}
+			lines = append(lines, fmt.Sprintf("%s/%s [%s]", s.Collection, recordFilename(s, r), id))
+		}
+		sort.Strings(lines)
+		out = append(out, lines...)
+	}
+	return out, nil
+}
+
+// printNoFile reports what is on the server with no file. It is not a change
+// apply would make, so it does not count toward --exit-code.
+func printNoFile(lines []string) {
+	for _, l := range lines {
+		fmt.Printf("no file  %s (on the server only; apply leaves it alone)\n", l)
+	}
 }
 
 // checkOrganizations refuses a workspace holding records of another
@@ -607,6 +707,11 @@ func diffUpdates(client *pb.Client, coll string, files []applyFile, idxs []int) 
 	if err != nil {
 		return nil, nil, fmt.Errorf("%s: %w", coll, err)
 	}
+	return diffUpdatesFrom(items, coll, files, idxs)
+}
+
+// diffUpdatesFrom is diffUpdates over a listing already fetched.
+func diffUpdatesFrom(items []pb.Record, coll string, files []applyFile, idxs []int) (changed []int, stale []string, err error) {
 	server := make(map[string]pb.Record, len(items))
 	for _, r := range items {
 		if id, _ := r["id"].(string); id != "" {

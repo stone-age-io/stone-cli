@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
@@ -32,6 +33,10 @@ var rootCmd = &cobra.Command{
 // Execute runs the root command and exits with an appropriate status code.
 func Execute() {
 	if err := rootCmd.Execute(); err != nil {
+		var exit exitError
+		if errors.As(err, &exit) {
+			os.Exit(exit.Code)
+		}
 		fmt.Fprintln(os.Stderr, "error:", err)
 		os.Exit(1)
 	}
@@ -55,3 +60,15 @@ func newPBClient(c ctx.Context) *pb.Client {
 	cl.Debug = flagDebug
 	return cl
 }
+
+// exitError ends the process with Code and prints nothing more: the command
+// has already said what it had to. It is for an exit status that is an
+// answer rather than a failure, like --exit-code's 2 for "changes pending".
+type exitError struct{ Code int }
+
+func (e exitError) Error() string { return fmt.Sprintf("exit status %d", e.Code) }
+
+// errChangesPending is what a --dry-run with --exit-code returns when apply
+// would send something: 2, as `git diff --exit-code` and `terraform plan
+// -detailed-exitcode` use it, so 1 still means an error.
+var errChangesPending = exitError{Code: 2}
