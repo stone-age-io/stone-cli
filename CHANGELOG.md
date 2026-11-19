@@ -24,6 +24,18 @@ that period, and this file starts where the versioned releases do.
   would reset them, and a file of another organization (`--any-org`).
   Configuration only: no messages, no consumers, and nothing is ever deleted.
   `stone apply` now steps over the `jetstream/` directory.
+- **`stone js pull --domain <thing>` / `stone js apply --domain <thing>`: an
+  edge site's JetStream.** An edge leaf node's JetStream domain is its Thing's
+  code, and `--domain` reaches it through the hub (`$JS.<code>.API.`). The
+  flag takes the code or id and looks it up, so a typo fails fast instead of
+  timing out. A leaf's files go to `jetstream/domains/<code>/streams|kv/` and
+  record `domain: <code>`. Apply refuses a file whose domain is not the one it
+  is connected to, whether the domain comes from the key or the directory.
+  Without `--domain`, apply steps over `domains/`. **Requires** the leaf's
+  uplink NATS role to allow subscribe on `$JS.<code>.API.>` (or
+  `$JS.*.API.>`). The hub forwards only what that credential may subscribe
+  to, and the demo seed's `gateway` role does not have it. Without it, the
+  command fails and names that cause.
 
 ### Fixed
 

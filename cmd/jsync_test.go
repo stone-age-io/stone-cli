@@ -5,7 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,6 +19,7 @@ import (
 
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
+	"github.com/stone-age-io/stone-cli/internal/ctx"
 	"github.com/stone-age-io/stone-cli/internal/pb"
 )
 
@@ -183,39 +187,399 @@ func TestApplySkipsTheJetStreamDirectory(t *testing.T) {
 // startJetStream runs the nats-server on PATH with JetStream on, or skips.
 func startJetStream(t *testing.T) jetstream.JetStream {
 	t.Helper()
-	bin, err := exec.LookPath("nats-server")
+	port := freePort(t)
+	nc := connectNATS(t, runNATSServer(t, port, "-js", "-a", "127.0.0.1", "-p", fmt.Sprint(port), "-sd", t.TempDir()))
+	js, err := jetstream.New(nc)
 	if err != nil {
-		t.Skip("nats-server not on PATH")
+		t.Fatal(err)
 	}
+	return js
+}
+
+func freePort(t *testing.T) int {
+	t.Helper()
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	port := l.Addr().(*net.TCPAddr).Port
-	l.Close()
-	srv := exec.Command(bin, "-js", "-a", "127.0.0.1", "-p", fmt.Sprint(port), "-sd", t.TempDir())
+	defer l.Close()
+	return l.Addr().(*net.TCPAddr).Port
+}
+
+// runNATSServer starts the nats-server on PATH with args, listening on port,
+// and returns its URL once it accepts connections; or skips.
+func runNATSServer(t *testing.T, port int, args ...string) string {
+	t.Helper()
+	bin, err := exec.LookPath("nats-server")
+	if err != nil {
+		t.Skip("nats-server not on PATH")
+	}
+	srv := exec.Command(bin, args...)
 	if err := srv.Start(); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = srv.Process.Kill(); _ = srv.Wait() })
 
 	url := fmt.Sprintf("nats://127.0.0.1:%d", port)
-	var nc *nats.Conn
 	for deadline := time.Now().Add(10 * time.Second); ; {
-		if nc, err = nats.Connect(url); err == nil {
-			break
+		conn, err := net.Dial("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+		if err == nil {
+			conn.Close()
+			return url
 		}
 		if time.Now().After(deadline) {
 			t.Fatalf("nats-server did not come up: %v", err)
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	t.Cleanup(nc.Close)
-	js, err := jetstream.New(nc)
+}
+
+func connectNATS(t *testing.T, url string, opts ...nats.Option) *nats.Conn {
+	t.Helper()
+	nc, err := nats.Connect(url, opts...)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return js
+	t.Cleanup(nc.Close)
+	return nc
+}
+
+// The `gateway` role the platform's demo seed gives an edge site
+// (internal/demoseed/contract.go): it lets a leaf's local services reach the
+// hub's JetStream, but not the hub reach the leaf's.
+var (
+	gatewayRolePub = []string{"telemetry.>", "event.>", "status.>", "gateway.>", "acc.>", "kiosk.>", "_INBOX.>", "$JS.API.>", "$KV.>"}
+	gatewayRoleSub = []string{"telemetry.>", "event.>", "status.>", "gateway.>", "acc.>", "kiosk.>", "cmd.>", "config.>", "_INBOX.>", "$SRV.>"}
+)
+
+// edgeSite is a hub and one leaf node shaped like an edge site: the leaf runs
+// JetStream in domain `s01` (a Thing's code, as in the agent's nats-leaf.conf)
+// and dials the hub as `edge`, the uplink credential, whose permissions the
+// hub applies to the leaf connection.
+type edgeSite struct {
+	hub   *nats.Conn // a tenant session at the hub, where stone connects
+	local *nats.Conn // a session on the leaf itself, like the agent's
+}
+
+const edgeDomain = "s01"
+
+func startEdgeSite(t *testing.T, uplinkPub, uplinkSub []string) edgeSite {
+	t.Helper()
+	if _, err := exec.LookPath("nats-server"); err != nil {
+		t.Skip("nats-server not on PATH")
+	}
+	quote := func(ss []string) string {
+		q := make([]string, len(ss))
+		for i, s := range ss {
+			q[i] = fmt.Sprintf("%q", s)
+		}
+		return "[" + strings.Join(q, ", ") + "]"
+	}
+	perms := ""
+	if uplinkPub != nil || uplinkSub != nil {
+		perms = fmt.Sprintf(", permissions: { publish: { allow: %s }, subscribe: { allow: %s } }", quote(uplinkPub), quote(uplinkSub))
+	}
+	hubPort, leafnodePort, leafPort := freePort(t), freePort(t), freePort(t)
+	dir := t.TempDir()
+	write := func(name, conf string) string {
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, []byte(conf), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	hubConf := write("hub.conf", fmt.Sprintf(`
+server_name: hub
+listen: "127.0.0.1:%d"
+jetstream { domain: hub, store_dir: %q }
+accounts {
+  ACME: {
+    jetstream: enabled
+    users: [
+      { user: console, password: console }
+      { user: edge, password: edge%s }
+    ]
+  }
+}
+leafnodes { listen: "127.0.0.1:%d" }
+`, hubPort, filepath.Join(dir, "hub-js"), perms, leafnodePort))
+	leafConf := write("leaf.conf", fmt.Sprintf(`
+server_name: %s
+listen: "127.0.0.1:%d"
+jetstream { domain: %s, store_dir: %q }
+accounts {
+  ACME: { jetstream: enabled, users: [ { user: agent, password: agent } ] }
+}
+leafnodes { remotes: [ { url: "nats-leaf://edge:edge@127.0.0.1:%d", account: ACME } ] }
+`, edgeDomain, leafPort, edgeDomain, filepath.Join(dir, "leaf-js"), leafnodePort))
+
+	hubURL := runNATSServer(t, hubPort, "-c", hubConf)
+	leafURL := runNATSServer(t, leafPort, "-c", leafConf)
+	site := edgeSite{
+		hub:   connectNATS(t, hubURL, nats.UserInfo("console", "console")),
+		local: connectNATS(t, leafURL, nats.UserInfo("agent", "agent")),
+	}
+
+	// Wait for the leaf link, with an ordinary request every uplink here
+	// lets through, so a silent JetStream request means the uplink and not
+	// a leaf that has yet to attach.
+	sub, err := site.local.Subscribe("gateway.ping", func(m *nats.Msg) { _ = m.Respond([]byte("pong")) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = sub.Unsubscribe() })
+	for deadline := time.Now().Add(10 * time.Second); ; {
+		if _, err := site.hub.Request("gateway.ping", nil, 250*time.Millisecond); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the leaf never answered through the hub")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	return site
+}
+
+// TestJSDomainReachesALeaf runs pull and apply through the hub against a
+// leaf's JetStream domain, and checks the hub's files and the leaf's stay in
+// their own directories and their own servers.
+func TestJSDomainReachesALeaf(t *testing.T) {
+	site := startEdgeSite(t, nil, nil)
+	cctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	hubJS, _ := jetstream.New(site.hub)
+	leafJS, _ := jetstream.NewWithDomain(site.hub, edgeDomain)
+	localJS, _ := jetstream.New(site.local)
+	if err := checkJSDomain(cctx, newJSAPI(leafJS)); err != nil {
+		t.Fatalf("checkJSDomain: %v", err)
+	}
+
+	if _, err := hubJS.CreateStream(cctx, jetstream.StreamConfig{Name: "HUB", Subjects: []string{"hub.>"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := localJS.CreateStream(cctx, jetstream.StreamConfig{Name: "EDGE", Subjects: []string{"edge.>"}, MaxAge: time.Hour}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := localJS.CreateKeyValue(cctx, jetstream.KeyValueConfig{Bucket: "cfg", History: 3}); err != nil {
+		t.Fatal(err)
+	}
+
+	ws := t.TempDir()
+	hubDir, leafDir := jsWorkspaceDir(ws, ""), jsWorkspaceDir(ws, edgeDomain)
+	var out bytes.Buffer
+	if err := jsPull(cctx, hubJS, hubDir, orgA, &out, &out); err != nil {
+		t.Fatal(err)
+	}
+	if err := jsPull(cctx, leafJS, leafDir, orgA, &out, &out); err != nil {
+		t.Fatal(err)
+	}
+	read := func(path string) pb.Record {
+		t.Helper()
+		r, err := pb.UnmarshalFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return r
+	}
+	if r := read(filepath.Join(hubDir, jsStreamsDir, "HUB.yaml")); r[jsKeyDomain] != nil {
+		t.Fatalf("a hub file records a domain: %v", r)
+	}
+	edge := read(filepath.Join(ws, jsDir, jsDomainsDir, edgeDomain, jsStreamsDir, "EDGE.yaml"))
+	if edge[jsKeyDomain] != edgeDomain || edge[jsKeyOrg] != orgA || edge["max_age"] != "1h" {
+		t.Fatalf("EDGE.yaml = %v", edge)
+	}
+	if r := read(filepath.Join(leafDir, jsKVDir, "cfg.yaml")); r[jsKeyDomain] != edgeDomain || r["history"] != 3 {
+		t.Fatalf("cfg.yaml = %v", r)
+	}
+	for _, p := range []string{filepath.Join(hubDir, jsStreamsDir, "EDGE.yaml"), filepath.Join(leafDir, jsStreamsDir, "HUB.yaml")} {
+		if _, err := os.Stat(p); err == nil {
+			t.Fatalf("%s was pulled from the wrong domain", p)
+		}
+	}
+
+	// The hub's walk steps over domains/; the leaf's sees only its own.
+	hubFiles, err := readJSFiles([]string{hubDir}, &out)
+	if err != nil || len(hubFiles) != 1 || hubFiles[0].Name != "HUB" {
+		t.Fatalf("hub files: %v %v", hubFiles, err)
+	}
+
+	// Edit the leaf's stream and add a bucket with no domain key: the
+	// directory places it.
+	edge["max_age"] = "2h"
+	if err := pb.MarshalFile(filepath.Join(leafDir, jsStreamsDir, "EDGE.yaml"), edge); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(leafDir, jsKVDir, "fresh.yaml"), "bucket: fresh\nhistory: 2\n")
+	leafFiles, err := readJSFiles([]string{leafDir}, &out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	if err := jsApply(cctx, leafJS, leafFiles, orgA, jsApplyOptions{Domain: edgeDomain}, &out, &out); err != nil ||
+		!strings.Contains(out.String(), "created 1  updated 1  unchanged 1  failed 0") {
+		t.Fatalf("apply to the leaf: %v\n%s", err, out.String())
+	}
+	if s, err := localJS.Stream(cctx, "EDGE"); err != nil || s.CachedInfo().Config.MaxAge != 2*time.Hour {
+		t.Fatalf("the leaf's EDGE after apply: %v", err)
+	}
+	if _, err := localJS.KeyValue(cctx, "fresh"); err != nil {
+		t.Fatalf("bucket fresh is not on the leaf: %v", err)
+	}
+	if _, err := hubJS.Stream(cctx, "KV_fresh"); err == nil {
+		t.Fatal("bucket fresh was created on the hub too")
+	}
+	if r := read(filepath.Join(leafDir, jsKVDir, "fresh.yaml")); r[jsKeyDomain] != edgeDomain || r[jsKeyHash] == nil {
+		t.Fatalf("a created bucket's file did not get its domain and hash: %v", r)
+	}
+
+	// A leaf's file applied to the hub, and a hub file applied to the leaf,
+	// both stop before anything is sent.
+	out.Reset()
+	if err := jsApply(cctx, hubJS, leafFiles, orgA, jsApplyOptions{}, &out, &out); err == nil ||
+		!strings.Contains(err.Error(), "belongs to domain s01, but apply is connected to the hub") {
+		t.Fatalf("leaf files applied to the hub: %v", err)
+	}
+	if err := jsApply(cctx, leafJS, hubFiles, orgA, jsApplyOptions{Domain: edgeDomain}, &out, &out); err == nil ||
+		!strings.Contains(err.Error(), "belongs to the hub, but apply is connected to domain s01") {
+		t.Fatalf("hub files applied to the leaf: %v", err)
+	}
+	if _, err := localJS.Stream(cctx, "HUB"); err == nil {
+		t.Fatal("the hub's stream reached the leaf")
+	}
+}
+
+// TestJSDomainNeedsTheUplinkToAllowIt pins why the demo `gateway` role cannot
+// carry `--domain`: the hub forwards to a leaf only what the uplink credential
+// may subscribe to. checkJSDomain must say so rather than time out.
+func TestJSDomainNeedsTheUplinkToAllowIt(t *testing.T) {
+	cases := []struct {
+		name string
+		sub  []string
+		ok   bool
+	}{
+		{"demo gateway role", gatewayRoleSub, false},
+		{"gateway role plus the domain API", append(append([]string{}, gatewayRoleSub...), "$JS.*.API.>"), true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			site := startEdgeSite(t, gatewayRolePub, tc.sub)
+			leafJS, _ := jetstream.NewWithDomain(site.hub, edgeDomain)
+			cctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			err := checkJSDomain(cctx, newJSAPI(leafJS))
+			if tc.ok && err != nil {
+				t.Fatalf("checkJSDomain: %v", err)
+			}
+			if !tc.ok && (err == nil || !strings.Contains(err.Error(), "subscribe list of its NATS role")) {
+				t.Fatalf("checkJSDomain through a gateway uplink = %v, want the uplink explained", err)
+			}
+		})
+	}
+}
+
+// TestResolveJSDomain: --domain names a thing, by code in any case or by id,
+// and yields the code exactly as stored, which is the leaf's domain. A name
+// that is no thing is an error here, not a request no leaf answers.
+func TestResolveJSDomain(t *testing.T) {
+	const id = "thg000000000001"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/things/records"):
+			items := []pb.Record{}
+			if f := r.URL.Query().Get("filter"); strings.Contains(f, `"site-01"`) && strings.Contains(f, orgA) {
+				items = append(items, pb.Record{"id": id})
+			}
+			_ = json.NewEncoder(w).Encode(pb.ListResult{Page: 1, TotalPages: 1, Items: items})
+		case strings.HasSuffix(r.URL.Path, "/things/records/"+id):
+			_ = json.NewEncoder(w).Encode(pb.Record{"id": id, "code": "SITE-01"})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	c := ctx.Context{URL: srv.URL, Auth: ctx.AuthSection{Token: "not-a-jwt"}, CurrentOrganization: orgA}
+
+	for _, arg := range []string{"site-01", "Site-01", id} {
+		if got, err := resolveJSDomain(c, arg); err != nil || got != "SITE-01" {
+			t.Errorf("resolveJSDomain(%q) = %q, %v; want SITE-01", arg, got, err)
+		}
+	}
+	if _, err := resolveJSDomain(c, "site-1"); err == nil || !strings.Contains(err.Error(), "--domain") {
+		t.Errorf("a code no thing has was accepted: %v", err)
+	}
+	if got, err := resolveJSDomain(c, ""); got != "" || err != nil {
+		t.Errorf("no --domain = %q, %v; want the hub", got, err)
+	}
+}
+
+// TestJSDomainOfAFile: a domain key wins over the directory, which wins over
+// nothing (the hub); and a hub connection whose nats context names a domain
+// accepts hub files that record it.
+func TestJSDomainOfAFile(t *testing.T) {
+	ws := t.TempDir()
+	put := func(rel, body string) *jsFile {
+		t.Helper()
+		p := filepath.Join(ws, rel)
+		writeFile(t, p, body)
+		kind := kindStream
+		if filepath.Base(filepath.Dir(p)) == jsKVDir {
+			kind = kindKV
+		}
+		f, err := parseJSFile(p, kind)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return f
+	}
+	hub := put("jetstream/streams/A.yaml", "name: A\n")
+	hubKeyed := put("jetstream/streams/B.yaml", "name: B\ndomain: hub\n")
+	byDir := put("jetstream/domains/s01/kv/c.yaml", "bucket: c\n")
+	moved := put("jetstream/domains/s02/streams/D.yaml", "name: D\ndomain: s01\n")
+	if byDir.domain() != "s01" || moved.domain() != "s01" || hub.domain() != "" {
+		t.Fatalf("domains: hub=%q byDir=%q moved=%q", hub.domain(), byDir.domain(), moved.domain())
+	}
+	if _, ok := byDir.Body[jsKeyDomain]; ok {
+		t.Fatal("domain left in the body that is sent")
+	}
+	if _, ok := moved.Body[jsKeyDomain]; ok {
+		t.Fatal("domain left in the body that is sent")
+	}
+
+	for _, tc := range []struct {
+		f         *jsFile
+		opt       jsApplyOptions
+		hubDomain string
+		want      bool
+	}{
+		{hub, jsApplyOptions{}, "", true},
+		{hub, jsApplyOptions{}, "hub", true},
+		{hub, jsApplyOptions{Domain: "s01"}, "", false},
+		{hubKeyed, jsApplyOptions{}, "hub", true},
+		{hubKeyed, jsApplyOptions{}, "", false},
+		{byDir, jsApplyOptions{Domain: "s01"}, "", true},
+		{byDir, jsApplyOptions{}, "", false},
+		{moved, jsApplyOptions{Domain: "s02"}, "", false},
+		{moved, jsApplyOptions{Domain: "s01"}, "", true},
+	} {
+		if got := tc.f.belongsTo(tc.opt, tc.hubDomain); got != tc.want {
+			t.Errorf("%s belongsTo(domain=%q, hub=%q) = %v, want %v", tc.f.label(), tc.opt.Domain, tc.hubDomain, got, tc.want)
+		}
+	}
+
+	files, err := readJSFiles([]string{filepath.Join(ws, jsDir)}, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 2 {
+		t.Fatalf("the hub's walk read %d files, want A and B only", len(files))
+	}
+	if files, err = readJSFiles([]string{filepath.Join(ws, jsDir, jsDomainsDir)}, io.Discard); err != nil || len(files) != 2 {
+		t.Fatalf("a walk rooted at domains/ read %d files (%v), want both domains'", len(files), err)
+	}
+	if got := jsWorkspaceDir("w", "s01"); got != filepath.Join("w", jsDir, jsDomainsDir, "s01") {
+		t.Fatalf("jsWorkspaceDir = %s", got)
+	}
 }
 
 type jsHarness struct {

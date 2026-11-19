@@ -647,6 +647,29 @@ file was pulled, or was deleted, apply refuses and sends nothing (`--force`
 overrides). The server refuses changes it cannot make, such as a new storage
 type; apply reports those per file and carries on.
 
+#### Edge sites (`--domain`)
+
+An edge site's NATS leaf node runs its own JetStream, in a domain named after
+its Thing's code. `--domain` reaches it through the hub:
+
+```sh
+./stone js pull  --domain SITE-01   # → <workspace>/jetstream/domains/SITE-01/{streams,kv}/
+./stone js apply --domain SITE-01   # reads jetstream/domains/SITE-01/ by default
+```
+
+`--domain` takes the thing's code (any case) or id and looks it up, so a typo
+fails at once. Pulled files record `domain: SITE-01`. Apply refuses, before
+sending anything, a file whose domain (its `domain` key, or the
+`domains/<code>/` directory it is in) is not the one it is connected to. Plain
+`stone js apply` reads `jetstream/` and steps over `domains/`.
+
+The hub forwards a request to a leaf only if the leaf's **uplink credential**
+(the Thing's own NATS user) may subscribe to it. Its NATS role needs
+`$JS.<code>.API.>` or `$JS.*.API.>` on its subscribe list. The demo seed's
+`gateway` role does not have it. Without it, the command stops with an error
+that names both causes: the leaf is not connected, or the uplink filters the
+request. Your own NATS user also needs to publish to `$JS.*.API.>`.
+
 To back up stream **data**, use the nats CLI with the context stone writes:
 
 ```sh

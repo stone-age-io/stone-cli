@@ -37,11 +37,15 @@ const (
 	jsDir        = "jetstream"
 	jsStreamsDir = "streams"
 	jsKVDir      = "kv"
+	// jsDomainsDir holds one directory per leaf node's JetStream domain,
+	// jetstream/domains/<code>/streams|kv/, beside the hub's jetstream/streams|kv/.
+	jsDomainsDir = "domains"
 
 	// Keys a workspace file carries that are not stream or bucket config.
 	// apply strips them before comparing or sending.
-	jsKeyOrg  = "organization"
-	jsKeyHash = "config_hash"
+	jsKeyOrg    = "organization"
+	jsKeyHash   = "config_hash"
+	jsKeyDomain = "domain"
 
 	kvStreamPrefix  = "KV_"
 	objStreamPrefix = "OBJ_"
@@ -112,7 +116,14 @@ pulled: this is configuration, not a backup.
 Values the server fills in by default are left out, and durations are written
 as "24h" rather than nanoseconds. Each file also records the organization
 and a config_hash of the server's config, which apply uses to refuse a file
-the server has changed since. Pull overwrites files: commit edits first.`,
+the server has changed since. Pull overwrites files: commit edits first.
+
+--domain <thing> pulls an edge site's leaf node instead of the hub. A leaf's
+JetStream domain is its Thing's code; name the thing by code or id. Its files
+go to <workspace>/jetstream/domains/<code>/streams|kv/ and record the domain.
+The requests cross the leaf link, and the hub forwards to a leaf only what the
+leaf's uplink credential (the Thing's NATS user) may subscribe to, so its NATS
+role must allow subscribe on $JS.<code>.API.> (or $JS.*.API.>).`,
 	Args: cobra.NoArgs,
 	RunE: runJSPull,
 }
@@ -139,6 +150,12 @@ Apply refuses, and sends nothing, when:
 --force sends anyway. A file whose organization is not the current one stops
 apply too, unless --any-org is given.
 
+--domain <thing> applies to an edge site's leaf node instead of the hub (see
+'stone js pull --help'), reading jetstream/domains/<code>/ by default. Without
+it apply reads jetstream/ and steps over its domains/ directory. A file whose
+domain -- its domain key, or the domains/<code>/ directory it is in -- is not
+the one apply is connected to stops apply before anything is sent.
+
 The server checks every config and refuses changes it cannot make (storage
 type, for one); apply reports those per file and carries on with the rest.
 After each write, apply records the new config_hash in the file, which
@@ -152,6 +169,8 @@ func init() {
 	jsApplyCmd.Flags().Bool("dry-run", false, "print what would be created and updated (and which fields) without sending it")
 	jsApplyCmd.Flags().Bool("force", false, "send files the server has changed or deleted since they were pulled")
 	jsApplyCmd.Flags().Bool("any-org", false, "apply files that belong to organizations other than the current one")
+	jsPullCmd.Flags().String("domain", "", "pull an edge site's leaf node: the JetStream domain of this thing (code or id)")
+	jsApplyCmd.Flags().String("domain", "", "apply to an edge site's leaf node: the JetStream domain of this thing (code or id)")
 	jsCmd.AddCommand(jsPullCmd, jsApplyCmd)
 }
 
@@ -168,14 +187,22 @@ func runJSPull(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	js, cleanup, err := openJS()
+	domainArg, _ := cmd.Flags().GetString("domain")
+	domain, err := resolveJSDomain(c, domainArg)
+	if err != nil {
+		return err
+	}
+	js, cleanup, err := openJSDomain(domain)
 	if err != nil {
 		return err
 	}
 	defer cleanup()
 	cctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	return jsPull(cctx, js, filepath.Join(ws, jsDir), org, os.Stdout, os.Stderr)
+	if err := checkJSDomain(cctx, newJSAPI(js)); err != nil {
+		return err
+	}
+	return jsPull(cctx, js, jsWorkspaceDir(ws, domain), org, os.Stdout, os.Stderr)
 }
 
 func runJSApply(cmd *cobra.Command, args []string) error {
@@ -191,10 +218,14 @@ func runJSApply(cmd *cobra.Command, args []string) error {
 	opt.DryRun, _ = cmd.Flags().GetBool("dry-run")
 	opt.Force, _ = cmd.Flags().GetBool("force")
 	opt.AnyOrg, _ = cmd.Flags().GetBool("any-org")
+	domainArg, _ := cmd.Flags().GetString("domain")
+	if opt.Domain, err = resolveJSDomain(c, domainArg); err != nil {
+		return err
+	}
 
 	roots := args
 	if len(roots) == 0 {
-		roots = []string{filepath.Join(ws, jsDir)}
+		roots = []string{jsWorkspaceDir(ws, opt.Domain)}
 	}
 	files, err := readJSFiles(roots, os.Stderr)
 	if err != nil {
@@ -207,14 +238,72 @@ func runJSApply(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	js, cleanup, err := openJS()
+	js, cleanup, err := openJSDomain(opt.Domain)
 	if err != nil {
 		return err
 	}
 	defer cleanup()
 	cctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
+	if err := checkJSDomain(cctx, newJSAPI(js)); err != nil {
+		return err
+	}
 	return jsApply(cctx, js, files, org, opt, os.Stdout, os.Stderr)
+}
+
+// jsWorkspaceDir is where pull writes, and where apply reads by default: the
+// hub's files at jetstream/, a leaf's at jetstream/domains/<code>/.
+func jsWorkspaceDir(ws, domain string) string {
+	if domain == "" {
+		return filepath.Join(ws, jsDir)
+	}
+	return filepath.Join(ws, jsDir, jsDomainsDir, domain)
+}
+
+// resolveJSDomain turns --domain into a JetStream domain. A leaf node's domain
+// is its Thing's code: the platform computes it, and the agent writes it into
+// nats-leaf.conf. Looking the thing up, rather than taking the string as given,
+// makes a typo "no thing" here instead of a request no leaf answers, and turns
+// an id or a differently cased code into the exact code the leaf uses.
+func resolveJSDomain(c ctx.Context, arg string) (string, error) {
+	if arg == "" {
+		return "", nil
+	}
+	spec, ok := specByCollection("things")
+	if !ok {
+		return "", errors.New("no thing entity") // cannot happen: entity.go declares it
+	}
+	client := newPBClient(c)
+	id, err := resolveRecordID(client, spec, c.CurrentOrganization, arg)
+	if err != nil {
+		return "", fmt.Errorf("--domain: %w", err)
+	}
+	rec, err := client.Get(spec.Collection, id, pb.GetOptions{Fields: "code"})
+	if err != nil {
+		return "", fmt.Errorf("--domain: %w", err)
+	}
+	code, _ := rec["code"].(string)
+	if code == "" {
+		return "", fmt.Errorf("--domain: thing %s has no code, and a leaf node's JetStream domain is its code", id)
+	}
+	return code, nil
+}
+
+// checkJSDomain asks a leaf's JetStream for its account info before anything
+// else, so an unreachable domain fails once, with the reason, rather than as
+// whatever the first stream request makes of it. A no-op for the hub.
+func checkJSDomain(cctx context.Context, api jsAPI) error {
+	if api.domain == "" {
+		return nil
+	}
+	_, err := api.nc.RequestWithContext(cctx, api.prefix+"INFO", nil)
+	if errors.Is(err, nats.ErrNoResponders) {
+		return api.noResponders("INFO")
+	}
+	if err != nil {
+		return fmt.Errorf("JetStream domain %s: %w", api.domain, err)
+	}
+	return nil
 }
 
 // jsConnOrg names the organization whose NATS account the connection will
@@ -249,6 +338,7 @@ func jsConnOrg(c ctx.Context) (string, error) {
 
 func jsPull(cctx context.Context, js jetstream.JetStream, dir, org string, out, errOut io.Writer) error {
 	api := newJSAPI(js)
+	domain := js.Options().Domain
 	lister := js.StreamNames(cctx)
 	var names []string
 	for n := range lister.Name() {
@@ -307,6 +397,9 @@ func jsPull(cctx context.Context, js jetstream.JetStream, dir, org string, out, 
 		if org != "" {
 			rec[jsKeyOrg] = org
 		}
+		if domain != "" {
+			rec[jsKeyDomain] = domain
+		}
 		rec[jsKeyHash] = hash
 
 		fname := sanitizeFilename(base)
@@ -332,6 +425,10 @@ func jsPull(cctx context.Context, js jetstream.JetStream, dir, org string, out, 
 
 type jsApplyOptions struct {
 	DryRun, Force, AnyOrg bool
+
+	// Domain is the leaf node's JetStream domain apply is connected to, or ""
+	// for the hub (the nats context's own JetStream).
+	Domain string
 }
 
 // jsFile is one workspace file and, once planned, what apply will do with it.
@@ -344,12 +441,37 @@ type jsFile struct {
 	Org  string
 	Hash string
 
+	// Domain is the file's domain key; DirDomain is <code> when the file is in
+	// jetstream/domains/<code>/. Both "" is a hub file.
+	Domain    string
+	DirDomain string
+
 	server  map[string]any // the server's raw stream config; nil = no such stream
 	changes []string       // top-level keys that differ from the server
 }
 
 func (f *jsFile) label() string {
 	return filepath.Base(filepath.Dir(f.Path)) + "/" + filepath.Base(f.Path)
+}
+
+// domain is the JetStream domain f belongs to: its domain key, else the
+// domains/<code>/ directory it is in, else "" for the hub.
+func (f *jsFile) domain() string {
+	if f.Domain != "" {
+		return f.Domain
+	}
+	return f.DirDomain
+}
+
+// belongsTo reports whether f may be applied where opt points. hubDomain is
+// the domain of the hub connection, if its nats context names one: a hub file
+// pulled through such a context records it.
+func (f *jsFile) belongsTo(opt jsApplyOptions, hubDomain string) bool {
+	d := f.domain()
+	if opt.Domain != "" {
+		return d == opt.Domain
+	}
+	return d == "" || d == hubDomain
 }
 
 func (f *jsFile) streamName() string {
@@ -374,6 +496,11 @@ func readJSFiles(roots []string, errOut io.Writer) ([]*jsFile, error) {
 			}
 			if d.IsDir() {
 				if strings.HasPrefix(d.Name(), ".") && path != abs {
+					return filepath.SkipDir
+				}
+				// The leaves' files, inside the hub's. They are applied
+				// with --domain, whose walk starts inside one of them.
+				if d.Name() == jsDomainsDir && path != abs {
 					return filepath.SkipDir
 				}
 				return nil
@@ -418,6 +545,8 @@ func parseJSFile(path string, kind jsKind) (*jsFile, error) {
 			f.Org, _ = v.(string)
 		case jsKeyHash:
 			f.Hash, _ = v.(string)
+		case jsKeyDomain:
+			f.Domain, _ = v.(string)
 		default:
 			f.Body[k] = v
 		}
@@ -425,6 +554,10 @@ func parseJSFile(path string, kind jsKind) (*jsFile, error) {
 	nameKey := "name"
 	if kind == kindKV {
 		nameKey = "bucket"
+	}
+	// .../domains/<code>/streams/<file>
+	if kindDir := filepath.Dir(path); filepath.Base(filepath.Dir(filepath.Dir(kindDir))) == jsDomainsDir {
+		f.DirDomain = filepath.Base(filepath.Dir(kindDir))
 	}
 	f.Name, _ = f.Body[nameKey].(string)
 	if f.Name == "" {
@@ -446,6 +579,10 @@ func jsApply(cctx context.Context, js jetstream.JetStream, files []*jsFile, org 
 	})
 
 	// Refuse up front, as `stone apply` does, rather than half-apply.
+	hubDomain := ""
+	if opt.Domain == "" {
+		hubDomain = js.Options().Domain
+	}
 	seen := map[string]string{}
 	var problems []string
 	for _, f := range files {
@@ -455,6 +592,9 @@ func jsApply(cctx context.Context, js jetstream.JetStream, files []*jsFile, org 
 		seen[f.streamName()] = f.Path
 		if !opt.AnyOrg && org != "" && f.Org != "" && f.Org != org {
 			problems = append(problems, fmt.Sprintf("  %s belongs to organization %s, not the current %s (--any-org to apply it anyway)", f.Path, f.Org, org))
+		}
+		if !f.belongsTo(opt, hubDomain) {
+			problems = append(problems, fmt.Sprintf("  %s belongs to %s, but apply is connected to %s", f.Path, jsDomainLabel(f.domain()), jsDomainLabel(opt.Domain)))
 		}
 	}
 	if len(problems) > 0 {
@@ -560,6 +700,7 @@ func jsApply(cctx context.Context, js jetstream.JetStream, files []*jsFile, org 
 // stale until it is pulled. That makes a failed write-back a warning.
 func (f *jsFile) send(cctx context.Context, api jsAPI, js jetstream.JetStream, org string, create bool, errOut io.Writer) error {
 	var after map[string]any
+	domain := js.Options().Domain
 	switch f.Kind {
 	case kindStream:
 		body, err := f.streamBody()
@@ -597,6 +738,9 @@ func (f *jsFile) send(cctx context.Context, api jsAPI, js jetstream.JetStream, o
 		f.Raw[jsKeyHash] = hash
 		if org != "" && f.Org == "" {
 			f.Raw[jsKeyOrg] = org
+		}
+		if domain != "" && f.Domain == "" {
+			f.Raw[jsKeyDomain] = domain
 		}
 		err = pb.MarshalFile(f.Path, f.Raw)
 	}
@@ -1103,6 +1247,7 @@ func structToMap(v any) (map[string]any, error) {
 type jsAPI struct {
 	nc     *nats.Conn
 	prefix string
+	domain string
 }
 
 func newJSAPI(js jetstream.JetStream) jsAPI {
@@ -1114,7 +1259,24 @@ func newJSAPI(js jetstream.JetStream) jsAPI {
 	case o.APIPrefix != "":
 		prefix = strings.TrimSuffix(o.APIPrefix, ".") + "."
 	}
-	return jsAPI{nc: js.Conn(), prefix: prefix}
+	return jsAPI{nc: js.Conn(), prefix: prefix, domain: o.Domain}
+}
+
+// noResponders explains a request nothing answered. Through the hub, a leaf's
+// domain has a cause that is not obvious: the hub forwards a request to a leaf
+// only if the leaf's uplink credential may subscribe to its subject, so a role
+// without $JS.<code>.API.> on its subscribe list drops it at the hub. Verified
+// against nats-server 2.14 with the agent's nats-leaf.conf shape.
+func (a jsAPI) noResponders(subj string) error {
+	if a.domain == "" {
+		return fmt.Errorf("JetStream is not available to this account (no responders on %s)", a.prefix+subj)
+	}
+	return fmt.Errorf("no JetStream answered in domain %s (no responders on %s). Either\n"+
+		"  - the leaf node for %s is not connected to the hub, or\n"+
+		"  - its uplink credential (the thing's NATS user) may not subscribe to $JS.%s.API.>:\n"+
+		"    the hub forwards to a leaf only what that credential may subscribe to, so add\n"+
+		"    $JS.%s.API.> (or $JS.*.API.>) to the subscribe list of its NATS role",
+		a.domain, a.prefix+subj, a.domain, a.domain, a.domain)
 }
 
 type jsAPIError struct {
@@ -1136,7 +1298,7 @@ func (a jsAPI) call(cctx context.Context, subj string, body any) (map[string]any
 	msg, err := a.nc.RequestWithContext(cctx, a.prefix+subj, data)
 	if err != nil {
 		if errors.Is(err, nats.ErrNoResponders) {
-			return nil, fmt.Errorf("JetStream is not available to this account (no responders on %s)", a.prefix+subj)
+			return nil, a.noResponders(subj)
 		}
 		return nil, err
 	}
@@ -1179,6 +1341,14 @@ func (a jsAPI) createStream(cctx context.Context, name string, cfg map[string]an
 
 func (a jsAPI) updateStream(cctx context.Context, name string, cfg map[string]any) (map[string]any, error) {
 	return a.call(cctx, "STREAM.UPDATE."+name, cfg)
+}
+
+// jsDomainLabel names a domain for a message; "" is the hub.
+func jsDomainLabel(domain string) string {
+	if domain == "" {
+		return "the hub"
+	}
+	return "domain " + domain
 }
 
 func jsOrgLabel(c ctx.Context, id string) string {
