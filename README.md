@@ -684,6 +684,18 @@ The hub forwards a request to a leaf only if the leaf's **uplink credential**
 that names both causes: the leaf is not connected, or the uplink filters the
 request. Your own NATS user also needs to publish to `$JS.*.API.>`.
 
+Changing the role is not enough on its own while the leaf is connected. The
+permissions travel in the user JWT the leaf presented when it connected, so
+the edge site has to fetch its re-issued credentials (`/api/me/leaf-config`)
+and reconnect. Until it does, the error stays the same. Verified against
+platform v0.20.0 with the demo seed's `GW-KC-01` leaf.
+
+```sh
+stone nats-role update gateway --subscribe-permissions '[..., "$JS.*.API.>"]'
+# then, on the edge site, re-sync the leaf config and restart the leaf
+stone js pull --domain GW-KC-01     # → jetstream/domains/GW-KC-01/{streams,kv}/
+```
+
 To back up stream **data**, use the nats CLI with the context stone writes:
 
 ```sh

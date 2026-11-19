@@ -46,7 +46,14 @@ that period, and this file starts where the versioned releases do.
   uplink NATS role to allow subscribe on `$JS.<code>.API.>` (or
   `$JS.*.API.>`). The hub forwards only what that credential may subscribe
   to, and the demo seed's `gateway` role does not have it. Without it, the
-  command fails and names that cause.
+  command fails and names that cause. A connected leaf picks up a role change
+  only after the edge site re-fetches its leaf config and reconnects. Checked
+  end to end against platform v0.20.0 and the demo seed's `GW-KC-01` leaf.
+- **`js apply` accepts a pulled workspace with no files.** For example, an
+  account with no streams on the hub and all of its config on leaves. A drift
+  check on it exits 0 rather than failing with "no files found". `js pull`
+  now creates `streams/` and `kv/` even when they would be empty. A
+  workspace that was never pulled is still an error.
 
 ### Fixed
 

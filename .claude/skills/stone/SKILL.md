@@ -261,7 +261,9 @@ pull and apply use the hub, and apply steps over `jetstream/domains/`. Apply
 refuses a file whose domain does not match the connection. If the command
 says "no responders", either the leaf is offline or its uplink NATS role (the
 thing's own) does not allow subscribe on `$JS.<code>.API.>`. Tell the user to
-add `$JS.*.API.>` to that role's subscribe list. Do not retry.
+add `$JS.*.API.>` to that role's subscribe list. Do not retry. A connected
+leaf keeps its old permissions until the edge site re-fetches its leaf config
+and reconnects, so the error persists until then.
 
 ## Nebula overlay
 

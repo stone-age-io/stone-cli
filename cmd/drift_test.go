@@ -123,3 +123,34 @@ func TestJSApplyReportsNoFileAndExitCode(t *testing.T) {
 		t.Fatal("dry run changed the server")
 	}
 }
+
+func TestJSApplyFilesTakesAnEmptyWorkspace(t *testing.T) {
+	ws := t.TempDir()
+	if _, err := jsApplyFiles(ws, "", nil, io.Discard); err == nil || !strings.Contains(err.Error(), "js pull") {
+		t.Fatalf("never pulled: err = %v", err)
+	}
+	// Pulled from an account with no streams on the hub, all on a leaf.
+	writeFile(t, filepath.Join(ws, jsDir, "domains", "GW-1", jsKVDir, "twin.yaml"), "bucket: twin\n")
+	if err := os.MkdirAll(filepath.Join(ws, jsDir, jsStreamsDir), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if files, err := jsApplyFiles(ws, "", nil, io.Discard); err != nil || len(files) != 0 {
+		t.Fatalf("empty hub workspace: files = %d, err = %v", len(files), err)
+	}
+	if _, err := jsApplyFiles(ws, "", []string{filepath.Join(ws, jsDir, jsStreamsDir)}, io.Discard); err == nil {
+		t.Fatal("a path holding no files was accepted")
+	}
+}
+
+func TestJSPullCreatesItsDirectoriesWhenEmpty(t *testing.T) {
+	h := newJSHarness(t)
+	h.pull()
+	for _, sub := range []string{jsStreamsDir, jsKVDir} {
+		if fi, err := os.Stat(filepath.Join(h.dir, sub)); err != nil || !fi.IsDir() {
+			t.Fatalf("%s/ not created by an empty pull: %v", sub, err)
+		}
+	}
+	if out, err := h.apply(jsApplyOptions{DryRun: true, ExitCode: true}); err != nil {
+		t.Fatalf("drift check on an empty account: %v\n%s", err, out)
+	}
+}

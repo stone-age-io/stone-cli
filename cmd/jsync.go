@@ -237,16 +237,9 @@ func runJSApply(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	roots := args
-	if len(roots) == 0 {
-		roots = []string{jsWorkspaceDir(ws, opt.Domain)}
-	}
-	files, err := readJSFiles(roots, os.Stderr)
+	files, err := jsApplyFiles(ws, opt.Domain, args, os.Stderr)
 	if err != nil {
 		return err
-	}
-	if len(files) == 0 {
-		return fmt.Errorf("no stream or bucket files found under: %v (run `stone js pull` first)", roots)
 	}
 	org, err := jsConnOrg(c)
 	if err != nil {
@@ -424,6 +417,13 @@ func jsPull(cctx context.Context, js jetstream.JetStream, dir, org string, out, 
 		path := filepath.Join(dir, sub, fname+".yaml")
 		if err := pb.MarshalFile(path, rec); err != nil {
 			return fmt.Errorf("write %s: %w", path, err)
+		}
+	}
+	// Even when empty: the lines below name them, and apply takes an existing
+	// workspace with no files as one that declares nothing.
+	for _, sub := range []string{jsStreamsDir, jsKVDir} {
+		if err := os.MkdirAll(filepath.Join(dir, sub), 0o755); err != nil {
+			return err
 		}
 	}
 	fmt.Fprintf(out, "%-10s %4d → %s\n", "streams", nStreams, filepath.Join(dir, jsStreamsDir))
@@ -1420,4 +1420,28 @@ func printJSNoFile(out io.Writer, lines []string) {
 	for _, l := range lines {
 		fmt.Fprintf(out, "no file  %s (on the server only; apply leaves it alone)\n", l)
 	}
+}
+
+// jsApplyFiles reads the files js apply works from: the given paths, or the
+// workspace's directory for domain. A pulled workspace with no files is a real
+// state -- an account with no streams on the hub, all of its config on leaves
+// -- and a CI drift check must pass on it, so only a directory that was never
+// pulled, or paths that hold nothing, are errors.
+func jsApplyFiles(ws, domain string, args []string, errOut io.Writer) ([]*jsFile, error) {
+	roots := args
+	if len(roots) == 0 {
+		dir := jsWorkspaceDir(ws, domain)
+		if _, err := os.Stat(dir); err != nil {
+			return nil, fmt.Errorf("%s does not exist (run `stone js pull` first)", dir)
+		}
+		roots = []string{dir}
+	}
+	files, err := readJSFiles(roots, errOut)
+	if err != nil {
+		return nil, err
+	}
+	if len(files) == 0 && len(args) > 0 {
+		return nil, fmt.Errorf("no stream or bucket files found under: %v", roots)
+	}
+	return files, nil
 }
