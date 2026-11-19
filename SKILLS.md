@@ -219,9 +219,13 @@ stone js stream purge <name>
 stone js stream delete <name>
 stone js pull                     # stream + bucket config -> <workspace>/jetstream/{streams,kv}/
 stone js apply [--dry-run]        # create/update from those files; refuses ones changed on the server since pull (--force)
+stone js pull --domain <thing>    # an edge leaf node's JetStream (domain = thing code) -> jetstream/domains/<code>/{streams,kv}/
+stone js apply --domain <thing>   # apply jetstream/domains/<code>/ to that leaf; a file of another domain stops apply
 
 stone nats sync-context                               # re-issue per-org creds after rotation
 ```
+
+`--domain` reaches a leaf through the hub. The hub forwards only what the leaf's uplink credential (the thing's NATS user) may subscribe to, so its NATS role needs `$JS.<code>.API.>` or `$JS.*.API.>` on subscribe. The demo `gateway` role lacks it, and the command then fails with "no responders" and names this cause.
 
 `stone nats sync-context` is the rotation hook: re-run after `stone nats-user update <id> --regenerate` or `--revoke`, or any time the linked `nats_users` record's `creds_file` changes.
 

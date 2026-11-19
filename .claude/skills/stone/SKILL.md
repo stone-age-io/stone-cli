@@ -241,6 +241,8 @@ stone js stream create twins --subject 'twins.>' --max-age 24h --storage file
 stone js pull                  # stream + KV bucket config → <workspace>/jetstream/{streams,kv}/
 stone js apply --dry-run       # diff the files against the server
 stone js apply                 # create/update; refuses files the server changed since pull (--force)
+stone js pull --domain SITE-01 # an edge leaf's JetStream → jetstream/domains/SITE-01/{streams,kv}/
+stone js apply --domain SITE-01
 
 stone nats sync-context        # re-issue per-org creds after key rotation
 ```
@@ -252,6 +254,14 @@ A stream file is the whole config, so a key deleted from it goes back to the
 server default on apply. A KV bucket's file is in bucket form (`history`,
 `ttl`); never edit its `KV_` stream as a stream. They handle config only; for
 stream data use `nats --context stone-<ctx>-<org> stream backup <stream> <dir>`.
+
+`--domain <thing>` targets an edge site's leaf node. Its JetStream domain is
+the thing's code, and the flag takes the code or the id. Without the flag,
+pull and apply use the hub, and apply steps over `jetstream/domains/`. Apply
+refuses a file whose domain does not match the connection. If the command
+says "no responders", either the leaf is offline or its uplink NATS role (the
+thing's own) does not allow subscribe on `$JS.<code>.API.>`. Tell the user to
+add `$JS.*.API.>` to that role's subscribe list. Do not retry.
 
 ## Nebula overlay
 

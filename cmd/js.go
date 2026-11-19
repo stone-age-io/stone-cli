@@ -363,6 +363,13 @@ var jsBucketDeleteCmd = &cobra.Command{
 // ---- helpers ----------------------------------------------------------------
 
 func openJS() (jetstream.JetStream, func(), error) {
+	return openJSDomain("")
+}
+
+// openJSDomain is openJS addressed at another JetStream domain than the nats
+// context's own: a leaf node's, which is reached through the hub as
+// $JS.<domain>.API. "" keeps the context's domain.
+func openJSDomain(domain string) (jetstream.JetStream, func(), error) {
 	c, err := ctx.Active(flagContext)
 	if err != nil {
 		return nil, nil, err
@@ -370,6 +377,9 @@ func openJS() (jetstream.JetStream, func(), error) {
 	nc, settings, err := natsConnect(c)
 	if err != nil {
 		return nil, nil, err
+	}
+	if domain != "" {
+		settings.JSDomain = domain
 	}
 	js, err := natsx.JetStream(nc, settings)
 	if err != nil {
