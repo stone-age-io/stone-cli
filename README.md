@@ -21,7 +21,7 @@ the Control Plane — that it talks to.
 
 ```sh
 # 1) Get the binary -- prebuilt, for the platform you are on
-VERSION=0.9.0
+VERSION=0.10.0
 curl -sSLO https://github.com/stone-age-io/stone-cli/releases/download/v${VERSION}/stone_${VERSION}_linux_amd64.tar.gz
 tar xzf stone_${VERSION}_linux_amd64.tar.gz     # unpacks ./stone, LICENSE, README.md, SKILLS.md
 

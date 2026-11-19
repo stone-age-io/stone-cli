@@ -10,6 +10,19 @@ that period, and this file starts where the versioned releases do.
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-11-18
+
+**JetStream config in git.** `stone js pull` and `stone js apply` keep every
+stream and KV bucket as a file in the workspace, beside the records `stone pull`
+writes, and `--domain <thing>` does the same for an edge site's leaf node.
+`--dry-run --exit-code` on both applies makes a CI drift check, and a
+whole-workspace apply now lists what is on the server with no file. One visible
+change: apply's summary line ends with a `no file N` count, so a script that
+parses it should match a prefix. A YAML `--config` file now reads the keys the
+server uses; before, most of them were ignored. Built against platform v0.20.1.
+`--domain` needs the leaf's uplink role to allow `$JS.*.API.>`, which the
+v0.20.1 demo seed's `gateway` role does.
+
 ### Added
 
 - **`stone js pull` / `stone js apply`: JetStream config in git.** Pull writes
@@ -894,7 +907,8 @@ Summarising the state at first tag rather than the path to it:
 - `auth login` is interactive by design; credentials cannot be discovered by the
   CLI, which is also what stops an assistant authenticating as you.
 
-[Unreleased]: https://github.com/stone-age-io/stone-cli/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/stone-age-io/stone-cli/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/stone-age-io/stone-cli/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/stone-age-io/stone-cli/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/stone-age-io/stone-cli/compare/v0.7.1...v0.8.0
 [0.7.1]: https://github.com/stone-age-io/stone-cli/compare/v0.7.0...v0.7.1
