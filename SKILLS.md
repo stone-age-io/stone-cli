@@ -125,6 +125,17 @@ Wraps `POST /api/org/things`: Thing + NATS identity + Nebula host in **one
 server-side transaction**. Email and password are server-generated; the password
 is printed **once** and is not retrievable afterwards, so capture it.
 
+**Device-held keys.** Add `--nats-device-key` and `--nebula-device-key` and the
+device makes its own key pairs: the platform holds only the public halves, so a
+stolen platform database holds no working credential for it. No credential is
+issued until the device's agent enrolls its keys. For a device with no agent,
+pass the public keys at provision (`--nats-public-key` from `nk -gen user
+-pubout`, `--nebula-public-key @host.pub` from `nebula-cert keygen`) or later
+with `stone nats-user update <name> --public-key ...` and
+`stone nebula-host update <name> --public-key @host.pub`. The choice is made at
+provision and cannot be changed. Needs platform v0.21+ (pb-nats v0.5.0,
+pb-nebula v0.8.0).
+
 - `--nats-mode` / `--nebula-mode`: `none` (default), `auto`, or `link`.
 - `auto` NATS uses the org's active account and its default role unless `--nats-role` is given.
 - `auto` Nebula **requires** `--nebula-network` and `--nebula-ip` — the route does not allocate an address.

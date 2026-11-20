@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -409,5 +411,25 @@ func TestIdArgUseListsEveryLookupKey(t *testing.T) {
 	membership, _ := specByCollection("memberships")
 	if got := idArgUse(membership, "get"); got != "get <id>" {
 		t.Errorf("got %q", got)
+	}
+}
+
+// A PEM public key is several lines and nebula-cert writes it to a file, so the
+// public_key flags take @path. Inline values pass through untouched.
+func TestReadAtFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "host.pub")
+	pem := "-----BEGIN NEBULA X25519 PUBLIC KEY-----\nAAAA\n-----END NEBULA X25519 PUBLIC KEY-----\n"
+	if err := os.WriteFile(path, []byte(pem), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := readAtFile("@" + path)
+	if err != nil || got != strings.TrimSpace(pem) {
+		t.Errorf("readAtFile(@file) = %q, %v; want the trimmed file", got, err)
+	}
+	if got, _ := readAtFile("UABC"); got != "UABC" {
+		t.Errorf("readAtFile(inline) = %q, want it unchanged", got)
+	}
+	if _, err := readAtFile("@" + path + ".missing"); err == nil {
+		t.Error("readAtFile of a missing file succeeded")
 	}
 }

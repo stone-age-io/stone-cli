@@ -303,7 +303,11 @@ func isOperator(client *pb.Client, c ctx.Context) (bool, error) {
 var workspaceOmit = map[string][]string{
 	"nats_users":    {"creds_file", "jwt", "public_key", "active", "regenerate", "revoke"},
 	"nats_accounts": {"jwt", "public_key", "signing_public_key", "signing_keys", "active", "revocations", "rotate_keys", "add_signing_key", "remove_signing_key"},
-	"nebula_hosts": {"config_yaml", "certificate", "ca_certificate", "expires_at", "renew", "active",
+	// public_key is device state on both, not configuration. On a platform-held
+	// NATS identity a public_key applied to a fresh platform without its seed is
+	// refused (pb-nats v0.5.0); on a device-held one the device enrolls its own
+	// key wherever it lands. device_key IS configuration and is pulled.
+	"nebula_hosts": {"config_yaml", "certificate", "ca_certificate", "expires_at", "renew", "active", "public_key",
 		// pb-nebula (v0.6.0+) keeps the certificates a host no longer holds here
 		// and builds every peer's pki.blocklist from them. A stale copy applied
 		// back would drop a later revocation, and so lift it.

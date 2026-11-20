@@ -2728,6 +2728,16 @@
       {
         "help": "",
         "hidden": false,
+        "id": "bool1617850672",
+        "name": "device_key",
+        "presentable": false,
+        "required": false,
+        "system": false,
+        "type": "bool"
+      },
+      {
+        "help": "",
+        "hidden": false,
         "id": "date1758146132",
         "max": "",
         "min": "",
@@ -2849,7 +2859,8 @@
     "indexes": [
       "CREATE UNIQUE INDEX `idx_tokenKey_pbc_4097575383` ON `nats_users` (`tokenKey`)",
       "CREATE UNIQUE INDEX `idx_email_pbc_4097575383` ON `nats_users` (`email`) WHERE `email` != ''",
-      "CREATE INDEX `idx_nats_users_role` ON `nats_users` (`role_id`)"
+      "CREATE INDEX `idx_nats_users_role` ON `nats_users` (`role_id`)",
+      "CREATE UNIQUE INDEX `idx_nats_users_public_key` ON `nats_users` (`public_key`) WHERE `public_key` != ''"
     ],
     "system": false,
     "authRule": "",
@@ -3349,6 +3360,31 @@
         "max": 10000,
         "min": 0,
         "name": "private_key",
+        "pattern": "",
+        "presentable": false,
+        "primaryKey": false,
+        "required": false,
+        "system": false,
+        "type": "text"
+      },
+      {
+        "help": "",
+        "hidden": false,
+        "id": "bool1617850672",
+        "name": "device_key",
+        "presentable": false,
+        "required": false,
+        "system": false,
+        "type": "bool"
+      },
+      {
+        "autogeneratePattern": "",
+        "help": "",
+        "hidden": false,
+        "id": "text1727648867",
+        "max": 1000,
+        "min": 0,
+        "name": "public_key",
         "pattern": "",
         "presentable": false,
         "primaryKey": false,

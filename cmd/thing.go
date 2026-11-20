@@ -105,6 +105,18 @@ Examples:
 		nebulaHost, _ := cmd.Flags().GetString("nebula-host")
 		nebulaNetwork, _ := cmd.Flags().GetString("nebula-network")
 		nebulaIP, _ := cmd.Flags().GetString("nebula-ip")
+		natsDeviceKey, _ := cmd.Flags().GetBool("nats-device-key")
+		natsPublicKey, _ := cmd.Flags().GetString("nats-public-key")
+		nebulaDeviceKey, _ := cmd.Flags().GetBool("nebula-device-key")
+		nebulaPublicKey, _ := cmd.Flags().GetString("nebula-public-key")
+		// A public key is read from a file with @path (nebula-cert writes
+		// host.pub), inline otherwise.
+		if natsPublicKey, err = readAtFile(natsPublicKey); err != nil {
+			return err
+		}
+		if nebulaPublicKey, err = readAtFile(nebulaPublicKey); err != nil {
+			return err
+		}
 
 		// Checked here as well as on the server so a typo costs a round trip
 		// rather than a transaction. The server still checks: it owns the rule,
@@ -149,15 +161,19 @@ Examples:
 			"type":        thingType,
 			"location":    location,
 			"nats": map[string]any{
-				"mode":    natsMode,
-				"user_id": natsUser,
-				"role_id": natsRole,
+				"mode":       natsMode,
+				"user_id":    natsUser,
+				"role_id":    natsRole,
+				"device_key": natsDeviceKey,
+				"public_key": natsPublicKey,
 			},
 			"nebula": map[string]any{
 				"mode":       nebulaMode,
 				"host_id":    nebulaHost,
 				"network_id": nebulaNetwork,
 				"overlay_ip": nebulaIP,
+				"device_key": nebulaDeviceKey,
+				"public_key": nebulaPublicKey,
 			},
 		}
 		if metadata != nil {
@@ -180,6 +196,9 @@ Examples:
 		fmt.Println("\nThe password is shown once and is not retrievable. Record it now.")
 		if natsMode != "none" || nebulaMode != "none" {
 			fmt.Printf("\nIdentities: stone thing get %s\n", out.Code)
+		}
+		if (natsDeviceKey && natsPublicKey == "") || (nebulaDeviceKey && nebulaPublicKey == "") {
+			fmt.Println("The device holds its own key: no credential is issued until its agent enrolls one (POST /api/me/keys).")
 		}
 		return nil
 	},
@@ -220,6 +239,14 @@ func init() {
 	f.String("nebula-host", "", "Nebula hostname or id to attach (--nebula-mode link)")
 	f.String("nebula-network", "", "Nebula network name or id for the new host (--nebula-mode auto)")
 	f.String("nebula-ip", "", "overlay IP for the new host (--nebula-mode auto; not allocated for you)")
+
+	// Device-held keys (platform v0.21+, pb-nats v0.5.0, pb-nebula v0.8.0): the
+	// device makes the key pair and the platform holds only the public half.
+	// Chosen here and frozen after; --mode auto only.
+	f.Bool("nats-device-key", false, "the device holds its NATS key: no seed or creds_file on the platform (--nats-mode auto; cannot be changed later)")
+	f.String("nats-public-key", "", "the device's NATS public key, from nk -gen user -pubout (needs --nats-device-key; omit to let the agent enroll it)")
+	f.Bool("nebula-device-key", false, "the device holds its Nebula key: no private key on the platform (--nebula-mode auto; cannot be changed later)")
+	f.String("nebula-public-key", "", "the device's Nebula public key PEM, or @host.pub from nebula-cert keygen (needs --nebula-device-key)")
 
 	_ = thingProvisionCmd.MarkFlagRequired("name")
 }

@@ -87,6 +87,11 @@ func SyncContextForOrg(opts SyncOptions) (SyncResult, error) {
 		}
 	}
 	if credsContent == "" {
+		// A device-held key: the seed never reached the platform, so there is
+		// no credential to hand out, and re-issuing would not make one.
+		if dk, _ := opts.NATSUser["device_key"].(bool); dk {
+			return res, errors.New("this NATS identity's key is held by its device (device_key): the platform has no seed or creds file to hand out. Use an identity whose key the platform holds for the CLI")
+		}
 		return res, errors.New("nats_users record has no creds_file (and no jwt+seed to build one); set 'regenerate=true' on the record to re-issue")
 	}
 

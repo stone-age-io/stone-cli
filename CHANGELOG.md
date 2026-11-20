@@ -10,6 +10,24 @@ that period, and this file starts where the versioned releases do.
 
 ## [Unreleased]
 
+### Added
+
+- **Device-held keys.** `thing provision` takes `--nats-device-key` and
+  `--nebula-device-key`, and optionally the device's public keys
+  (`--nats-public-key`, `--nebula-public-key`, which takes `@host.pub`).
+  `nats-user` and `nebula-host` gain `--device-key` and `--public-key` (the
+  latter takes `@file`). The platform holds only the public half of such a
+  key. `device_key` is pulled into a workspace; `public_key` is not, on
+  either collection: it is device state, and the device enrolls its own key
+  wherever the workspace is applied. Needs platform v0.21+.
+- The vendored platform schema is refreshed (platform `fa8a85f`).
+
+### Changed
+
+- **`stone nats sync-context` on a device-held key** says the key is held by
+  the device, instead of advising `regenerate`, which cannot produce a
+  credential the platform never had.
+
 ## [0.10.0] - 2026-11-18
 
 **JetStream config in git.** `stone js pull` and `stone js apply` keep every

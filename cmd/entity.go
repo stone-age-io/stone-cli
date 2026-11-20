@@ -58,6 +58,9 @@ type Field struct {
 	// relation to a collection with no EntitySpec (users), which stays id-only.
 	// TestRelationTargetsMatchThePlatformSchema keeps it honest.
 	Target string
+	// AtFile lets a string flag take @path to read the value from a file: a
+	// PEM key is several lines, and nebula-cert writes it to host.pub.
+	AtFile bool
 }
 
 // EntitySpec defines a CRUD-able entity.
@@ -353,6 +356,13 @@ var entitySpecs = []EntitySpec{
 			{Name: "account_id", Type: FID, Target: "nats_accounts", Required: true, Help: "NATS account name or id"},
 			{Name: "role_id", Type: FID, Target: "nats_roles", Required: true, Help: "NATS role name or id"},
 			{Name: "bearer_token", Type: FBool, Help: "issue as bearer-token user (no signing)"},
+			// Device-held keys (pb-nats v0.5.0). device_key is chosen at create
+			// and pb-nats refuses any change to it. public_key is write-once on
+			// a device_key row: paste what the device's nk printed, for a device
+			// with no agent. pb-nats refuses a second key, a revoked key, and a
+			// public_key on a platform-held row (use --revoke to replace that).
+			{Name: "device_key", Type: FBool, Help: "the device holds the key: no seed or creds_file on the platform (set at create; cannot be changed; not with --bearer-token)"},
+			{Name: "public_key", Type: FString, AtFile: true, Help: "the device's public key, from nk -gen user -pubout, inline or @file (device_key identities only; set once)"},
 			// Three levers, and the names mislead -- this is pb-nats v0.2.1 and
 			// later (internal/sync/manager.go, the OnRecordUpdate handler):
 			//
@@ -557,6 +567,11 @@ var entitySpecs = []EntitySpec{
 			{Name: "tun_device", Type: FString, Help: "tun interface name override; empty inherits the default"},
 
 			{Name: "validity_years", Type: FInt, Help: "certificate validity in years"},
+			// Device-held keys (pb-nebula v0.8.0): as for nats-user. No key
+			// reset: Nebula revokes certificates, never keys, so a leaked device
+			// key means deactivate this host and attach a new one.
+			{Name: "device_key", Type: FBool, Help: "the device holds the key: no private key on the platform (set at create; cannot be changed)"},
+			{Name: "public_key", Type: FString, AtFile: true, Help: "the device's NEBULA X25519 PUBLIC KEY PEM, or @host.pub from nebula-cert keygen (device_key hosts only; set once)"},
 			{Name: "active", Type: FBool, Help: "whether the host is active; clearing it BLOCKLISTS the certificate across the CA (true is refused while its Thing is deactivated)"},
 
 			// An action field, not state: pb-nebula re-issues on the false ->
@@ -1163,6 +1178,12 @@ func collectFields(cmd *cobra.Command, spec EntitySpec, forCreate bool) (pb.Reco
 		switch f.Type {
 		case FString:
 			v, _ := cmd.Flags().GetString(name)
+			if f.AtFile {
+				var err error
+				if v, err = readAtFile(v); err != nil {
+					return nil, fmt.Errorf("--%s: %w", name, err)
+				}
+			}
 			if forCreate && f.Required && v == "" {
 				return nil, fmt.Errorf("--%s is required", name)
 			}
@@ -1231,6 +1252,19 @@ func collectFields(cmd *cobra.Command, spec EntitySpec, forCreate bool) (pb.Reco
 		}
 	}
 	return out, nil
+}
+
+// readAtFile returns the contents of path for "@path", trimmed, and v itself
+// otherwise.
+func readAtFile(v string) (string, error) {
+	if !strings.HasPrefix(v, "@") {
+		return v, nil
+	}
+	b, err := os.ReadFile(v[1:])
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(b)), nil
 }
 
 // readJSONValue accepts:
