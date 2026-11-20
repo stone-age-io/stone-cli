@@ -21,7 +21,7 @@ the Control Plane — that it talks to.
 
 ```sh
 # 1) Get the binary -- prebuilt, for the platform you are on
-VERSION=0.10.0
+VERSION=0.11.0
 curl -sSLO https://github.com/stone-age-io/stone-cli/releases/download/v${VERSION}/stone_${VERSION}_linux_amd64.tar.gz
 tar xzf stone_${VERSION}_linux_amd64.tar.gz     # unpacks ./stone, LICENSE, README.md, SKILLS.md
 
@@ -510,7 +510,7 @@ pass the public keys at provision (`--nats-public-key` from `nk -gen user
 -pubout`, `--nebula-public-key @host.pub` from `nebula-cert keygen`) or later
 with `stone nats-user update <name> --public-key ...` and
 `stone nebula-host update <name> --public-key @host.pub`. The choice is made at
-provision and cannot be changed. Needs platform v0.21+ (pb-nats v0.5.0,
+provision and cannot be changed. Needs platform v0.21.0 (pb-nats v0.5.0,
 pb-nebula v0.8.0).
 
 Each identity takes a mode:

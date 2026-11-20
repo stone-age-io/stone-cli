@@ -133,7 +133,7 @@ pass the public keys at provision (`--nats-public-key` from `nk -gen user
 -pubout`, `--nebula-public-key @host.pub` from `nebula-cert keygen`) or later
 with `stone nats-user update <name> --public-key ...` and
 `stone nebula-host update <name> --public-key @host.pub`. The choice is made at
-provision and cannot be changed. Needs platform v0.21+ (pb-nats v0.5.0,
+provision and cannot be changed. Needs platform v0.21.0 (pb-nats v0.5.0,
 pb-nebula v0.8.0).
 
 - `--nats-mode` / `--nebula-mode`: `none` (default), `auto`, or `link`.

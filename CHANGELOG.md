@@ -10,6 +10,14 @@ that period, and this file starts where the versioned releases do.
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-11-20
+
+**Device-held keys.** `thing provision --nats-device-key --nebula-device-key`
+provisions a device that keeps its own private keys; the platform holds only
+the public halves. Needs platform v0.21.0. Nothing changes for existing
+workspaces: `device_key` is now pulled, and reads `false` on every existing
+identity.
+
 ### Added
 
 - **Device-held keys.** `thing provision` takes `--nats-device-key` and
@@ -19,8 +27,8 @@ that period, and this file starts where the versioned releases do.
   latter takes `@file`). The platform holds only the public half of such a
   key. `device_key` is pulled into a workspace; `public_key` is not, on
   either collection: it is device state, and the device enrolls its own key
-  wherever the workspace is applied. Needs platform v0.21+.
-- The vendored platform schema is refreshed (platform `fa8a85f`).
+  wherever the workspace is applied.
+- The vendored platform schema is refreshed (platform v0.21.0).
 
 ### Changed
 
@@ -925,7 +933,8 @@ Summarising the state at first tag rather than the path to it:
 - `auth login` is interactive by design; credentials cannot be discovered by the
   CLI, which is also what stops an assistant authenticating as you.
 
-[Unreleased]: https://github.com/stone-age-io/stone-cli/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/stone-age-io/stone-cli/compare/v0.11.0...HEAD
+[0.11.0]: https://github.com/stone-age-io/stone-cli/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/stone-age-io/stone-cli/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/stone-age-io/stone-cli/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/stone-age-io/stone-cli/compare/v0.7.1...v0.8.0

@@ -240,7 +240,7 @@ func init() {
 	f.String("nebula-network", "", "Nebula network name or id for the new host (--nebula-mode auto)")
 	f.String("nebula-ip", "", "overlay IP for the new host (--nebula-mode auto; not allocated for you)")
 
-	// Device-held keys (platform v0.21+, pb-nats v0.5.0, pb-nebula v0.8.0): the
+	// Device-held keys (platform v0.21.0, pb-nats v0.5.0, pb-nebula v0.8.0): the
 	// device makes the key pair and the platform holds only the public half.
 	// Chosen here and frozen after; --mode auto only.
 	f.Bool("nats-device-key", false, "the device holds its NATS key: no seed or creds_file on the platform (--nats-mode auto; cannot be changed later)")
