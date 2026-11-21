@@ -388,7 +388,7 @@ var entitySpecs = []EntitySpec{
 			// would hand the device a working credential while the Thing still
 			// says it is cut off. Reactivating the Thing is the way back.
 			{Name: "active", Type: FBool, Help: "false SUSPENDS: revokes the key and issues nothing back; true reactivates with a fresh credential (owner/admin; refused while its Thing is deactivated)"},
-			{Name: "revoke", Type: FBool, Help: "set true after a leak: retires the current key (NATS rejects every copy) and issues a working replacement; the identity stays active -- use --active=false to suspend (refused while its Thing is deactivated)"},
+			{Name: "revoke", Type: FBool, Help: "set true after a leak: retires the current key (NATS rejects every copy) and issues a working replacement (for a device_key identity, empties the key and the device must enroll a new one); the identity stays active -- use --active=false to suspend (refused while its Thing is deactivated)"},
 			{Name: "jwt_expires_at", Type: FString, Help: `credential expiry, RFC 3339 (pass "" to clear = never expires)`},
 			// Unioned with the role's. A direction neither grants is signed as
 			// deny ">" since pb-nats v0.3.0, not as everything.
