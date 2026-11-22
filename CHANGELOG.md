@@ -10,6 +10,13 @@ that period, and this file starts where the versioned releases do.
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-11-22
+
+**Templates.** `stone apply --template contract/` onboards the current
+organization from an application's contract folder: its Thing Types,
+operations and NATS roles. Works with platform v0.21.0. Nothing changes for
+an existing workspace or for `apply` without the flag.
+
 ### Added
 
 - **`stone apply --template <dir>`** applies one folder to the current
@@ -17,10 +24,16 @@ that period, and this file starts where the versioned releases do.
   same folder onboards every organization. Relations hold keys and are
   resolved in that organization; collections go in dependency order. Existing
   records get the fields that differ, missing ones are created, and nothing is
-  written back or deleted. A file with `id`, `updated`, `created` or
-  `organization` is refused. `--dry-run` and `--exit-code` work as for a
-  workspace. This is how an application ships its contract
-  (platform-docs ADR 0008).
+  written back or deleted. A template holds definitions only (Thing Types,
+  operations, NATS roles, Location Types), and a file with `id`, `updated`,
+  `created` or `organization` is refused. `--dry-run` and `--exit-code` work
+  as for a workspace. Access control, kiosk, the helpdesk and services each
+  ship a `contract/` folder in this form.
+
+### Changed
+
+- `nats-user --revoke` help says what it does on an identity with a
+  device-held key.
 
 ## [0.11.0] - 2026-11-20
 
@@ -945,7 +958,8 @@ Summarising the state at first tag rather than the path to it:
 - `auth login` is interactive by design; credentials cannot be discovered by the
   CLI, which is also what stops an assistant authenticating as you.
 
-[Unreleased]: https://github.com/stone-age-io/stone-cli/compare/v0.11.0...HEAD
+[Unreleased]: https://github.com/stone-age-io/stone-cli/compare/v0.12.0...HEAD
+[0.12.0]: https://github.com/stone-age-io/stone-cli/compare/v0.11.0...v0.12.0
 [0.11.0]: https://github.com/stone-age-io/stone-cli/compare/v0.10.0...v0.11.0
 [0.10.0]: https://github.com/stone-age-io/stone-cli/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/stone-age-io/stone-cli/compare/v0.8.0...v0.9.0
