@@ -8,6 +8,7 @@ This document describes the `stone` CLI's capability surface for integration wit
 
 - Manage tenant resources (things, locations, thing-types, memberships, NATS users/roles, Nebula networks/hosts) with typed CRUD.
 - Operate declaratively on a YAML workspace via `pull` and `apply` (PocketBase `/api/batch`, up to 50 ops per request, idempotent, no deletes).
+- Onboard an organization from an application's contract folder with `stone apply --template contract/`: records matched by code or name in the current organization, relations written as keys, nothing written back, no deletes. Definitions only (thing types, operations, NATS roles, location types).
 - Publish, subscribe, request on NATS, including JetStream publish.
 - Read and write JetStream KV buckets.
 - Administer JetStream streams (`stone js stream`) and KV bucket lifecycle (`stone kv bucket`). Keep stream and KV bucket config in git with `stone js pull` / `stone js apply`. Consumer management is intentionally out of scope — use the `nats` CLI.

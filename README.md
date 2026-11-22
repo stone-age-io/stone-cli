@@ -285,6 +285,56 @@ were created, then run `apply` again.
 
 For diff/status/history, put the workspace in `git`.
 
+### Templates: one folder for every organization
+
+A workspace belongs to one organization: its files carry that organization's
+ids. `stone apply --template <dir>` applies a folder to whichever organization
+is current, so the same folder onboards each one. An application ships its
+contract this way (its Thing Types, operations and NATS role), and onboarding
+an organization to it is:
+
+```sh
+stone org switch acme
+stone apply --template contract/ --dry-run
+stone apply --template contract/
+```
+
+A template file looks like a pulled one without the parts that belong to one
+organization:
+
+```yaml
+# contract/thing_types/access-door.yaml
+code: access-door
+name: Access-Controlled Door
+subject_prefix: acc.{location}
+operations:          # operation names, not ids
+  - publish_door_decision
+  - subscribe_door_grant
+```
+
+- **Records are matched by key**, the one CRUD lookup uses: a Thing Type by
+  `code` (ignoring case), an operation or a NATS role by `name`. A file with no
+  key is refused, and so is one with `id`, `updated`, `created` or
+  `organization`.
+- **Relations hold keys**, resolved in the current organization. Collections go
+  in dependency order, so operations exist before the Thing Type that names
+  them.
+- **Existing records get the fields that differ; missing ones are created.**
+  The key itself is never rewritten. There is no stale check: the template is
+  the contract, and applying a newer one is how an organization moves to it.
+- **Nothing is written back and nothing is deleted.** Records the template
+  does not name are left alone.
+- **A template holds definitions:** `thing_types/`, `thing_type_operations/`,
+  `nats_roles/` and `location_types/`. Not Things or Locations, whose codes the
+  server generates, and not identities, which belong to one organization. A
+  file anywhere else is an error, not a skip.
+- One request per record, so a failure names its file. A failure stops the
+  collections after it, which may point at it.
+
+`--dry-run` and `--exit-code` work as for a workspace, so a scheduled
+`stone apply --template contract/ --dry-run --exit-code` tells you when an
+organization has drifted from the contract.
+
 **Credentials are not written to the workspace.** PocketBase withholds the
 fields the schema marks hidden — every `private_key` and `seed` — but it returns
 plenty that is just as sensitive to an owner or admin, and `pull` drops those on

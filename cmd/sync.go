@@ -62,7 +62,23 @@ invisible.
 
 For CI: --dry-run --exit-code exits 2 when apply would create or update
 something, 0 when the workspace and the server agree, and 1 on an error.
-"no file" records do not count.`,
+"no file" records do not count.
+
+TEMPLATES
+
+  stone apply --template contract/
+
+applies one folder to whichever organization is current, so the same folder
+onboards every organization. An application ships its contract this way: its
+thing types, operations and NATS role. A template file names its record by
+the collection's key (a thing type by code, an operation or a role by name)
+and carries no id, updated, created or organization. A relation holds the
+target's key, such as "operations: [publish_door_decision]", resolved in the
+current organization. A record that exists is updated with the fields that
+differ; one that does not is created. Nothing is written back to the files
+and nothing is deleted. Collections go in dependency order, so operations are
+created before the thing type that names them. --dry-run and --exit-code work
+as above.`,
 	RunE: runApply,
 }
 
@@ -74,6 +90,7 @@ func init() {
 	applyCmd.Flags().Bool("any-org", false, "apply records that belong to organizations other than the current one")
 	applyCmd.Flags().Bool("force", false, "send records the server has changed since the file was pulled, overwriting those changes")
 	applyCmd.Flags().Bool("exit-code", false, "with --dry-run: exit 2 when apply would create or update something, 0 when not")
+	applyCmd.Flags().Bool("template", false, "apply the given directories to the current organization, matching records by code or name instead of id (see TEMPLATES below)")
 	rootCmd.AddCommand(pullCmd, applyCmd)
 }
 
@@ -413,6 +430,12 @@ func runApply(cmd *cobra.Command, args []string) error {
 	exitCode, _ := cmd.Flags().GetBool("exit-code")
 	if exitCode && !dryRun {
 		return errors.New("--exit-code needs --dry-run")
+	}
+	if template, _ := cmd.Flags().GetBool("template"); template {
+		if anyOrg || force {
+			return errors.New("--template applies to the current organization and has no lock to override: drop --any-org and --force")
+		}
+		return runApplyTemplate(c, args, dryRun, exitCode)
 	}
 
 	// Only the collections pull writes. A directory named after a read-only

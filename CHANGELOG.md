@@ -10,6 +10,18 @@ that period, and this file starts where the versioned releases do.
 
 ## [Unreleased]
 
+### Added
+
+- **`stone apply --template <dir>`** applies one folder to the current
+  organization, matching records by key (`code`, `name`) instead of id, so the
+  same folder onboards every organization. Relations hold keys and are
+  resolved in that organization; collections go in dependency order. Existing
+  records get the fields that differ, missing ones are created, and nothing is
+  written back or deleted. A file with `id`, `updated`, `created` or
+  `organization` is refused. `--dry-run` and `--exit-code` work as for a
+  workspace. This is how an application ships its contract
+  (platform-docs ADR 0008).
+
 ## [0.11.0] - 2026-11-20
 
 **Device-held keys.** `thing provision --nats-device-key --nebula-device-key`
